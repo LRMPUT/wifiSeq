@@ -5,6 +5,7 @@
 #include <boost/filesystem.hpp>
 
 #include <opencv2/opencv.hpp>
+#include <Stepometer.hpp>
 
 #include "pgm/Pgm.h"
 #include "pgm/Inference.h"
@@ -18,7 +19,7 @@ static constexpr int ssThreshold = -100;
 static constexpr double sharedPercentThreshold = 0.6;
 
 // in meters
-static constexpr double mapGrid = 2.0;
+static constexpr double mapGrid = 1.0;
 static constexpr double mapMinX = 0.0;
 static constexpr double mapMaxX = 130.0;
 static constexpr double mapMinY = 0.0;
@@ -126,7 +127,7 @@ void readTrajectory(boost::filesystem::path dirPath,
         uint64_t timestamp = 0;
         int locId = 0;
         int nscans = 0;
-        wifiFile >> timestamp >> locId >> nscans;
+        wifiFile >> curLoc.timestamp >> locId >> nscans;
 //        cout << "nscans = " << nscans << endl;
         if(!wifiFile.fail()){
             for(int i = 0; i < nscans; ++i){
@@ -154,8 +155,60 @@ void readTrajectory(boost::filesystem::path dirPath,
         }
     }
     
-    // TODO Add distances from stepometer
-    stepDists.resize(wifiLocations.size(), 0);
+    // distances from stepometer
+    stepDists.clear();
+    
+    ifstream accFile((dirPath / "acc.raw").c_str());
+    if(!accFile.is_open()){
+        cout << "Error! Could not open " << (dirPath / "acc.raw").c_str() << " file" << endl;
+    }
+    vector<double> accSamp;
+    vector<uint64_t> accSampTs;
+    while(!accFile.eof() && !accFile.fail()){
+        uint64_t timestamp;
+        double accX, accY, accZ;
+        accFile >> timestamp >> accX >> accY >> accZ;
+        if(!accFile.fail()){
+            accSamp.push_back(sqrt(accX*accX + accY*accY + accZ*accZ));
+            accSampTs.push_back(timestamp);
+        }
+    }
+    
+    {
+        static constexpr int winLen = 32;
+        static constexpr double stepLen = 0.7;
+        static constexpr double accSampFreq = 25;
+        static constexpr double freqMin = 1.1;
+        static constexpr double freqMax = 2.6;
+        static constexpr double fftMagThresh = 0.2;
+        
+        int curAccSampIdx = 0;
+        for(int s = 0; s < wifiLocations.size(); ++s){
+            uint64_t curScanTs = wifiLocations[s].timestamp;
+            double curDist = 0;
+         
+            while(curAccSampIdx < accSamp.size() && accSampTs[curAccSampIdx] < curScanTs){
+                if(curAccSampIdx >= winLen - 1){
+                    vector<double> curAccSamp(accSamp.begin() + curAccSampIdx - winLen + 1,
+                                              accSamp.begin() + curAccSampIdx + 1);
+                    
+//                    cout << "curAccSamp = " << curAccSamp << endl;
+                    curDist += Stepometer::computeDist(curAccSamp,
+                                                       (accSampTs[curAccSampIdx] - accSampTs[curAccSampIdx - 1]) * 1.0e-9,
+                                                       accSampFreq,
+                                                       stepLen,
+                                                       freqMin,
+                                                       freqMax,
+                                                       fftMagThresh);
+                }
+                
+                ++curAccSampIdx;
+            }
+            
+//            cout << "curDist = " << curDist << endl;
+            stepDists.push_back(curDist);
+        }
+    }
     
     cout << "Trajectory read" << endl;
 }
@@ -197,7 +250,7 @@ std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
 {
 //    int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
 //    int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
-    vector<vector<double>> prob(mapGridSizeY, vector<double>(mapGridSizeX, 0.01));
+    vector<vector<double>> prob(mapGridSizeY, vector<double>(mapGridSizeX, 0));
     
     for (const LocationWiFi &databaseLoc : database) {
         pair<double, int> error = errorL2(loc, databaseLoc);
@@ -334,14 +387,15 @@ Pgm buildPgm(const std::vector<std::vector<std::vector<double>>> &probs,
     // observation vector
     // location coordinates
     vector<double> xCoords, yCoords;
-    vector<double> rvVals;
+//    vector<double> rvVals;
     int mapSize = 0;
     for (int mapYIdx = 0; mapYIdx < probs[0].size(); ++mapYIdx) {
         for (int mapXIdx = 0; mapXIdx < probs[0][mapYIdx].size(); ++mapXIdx) {
             LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
             xCoords.push_back(mapCoord.x);
             yCoords.push_back(mapCoord.y);
-            rvVals.push_back(mapSize++);
+//            rvVals.push_back(mapSize++);
+            ++mapSize;
         }
     }
     int obsVecStartLoc = 0;
@@ -366,7 +420,26 @@ Pgm buildPgm(const std::vector<std::vector<std::vector<double>>> &probs,
     int nextRandVarId = 0;
     for(int i = 0; i < probs.size(); ++i){
         locIdxToVarClusterId[i] = nextRandVarId;
-        
+    
+        double maxProb = 0;
+        for (int mapYIdx = 0; mapYIdx < probs[i].size(); ++mapYIdx) {
+            for (int mapXIdx = 0; mapXIdx < probs[i][mapYIdx].size(); ++mapXIdx) {
+                maxProb = max(maxProb, probs[i][mapYIdx][mapXIdx]);
+            }
+        }
+    
+        double valThresh = min(0.01, maxProb/2.0);
+        vector<double> rvVals;
+        int mapIdx = 0;
+        for (int mapYIdx = 0; mapYIdx < probs[i].size(); ++mapYIdx) {
+            for (int mapXIdx = 0; mapXIdx < probs[i][mapYIdx].size(); ++mapXIdx) {
+                if(probs[i][mapYIdx][mapXIdx] > valThresh){
+                    rvVals.push_back(mapIdx);
+                }
+                ++mapIdx;
+            }
+        }
+        cout << "rvVals.size() = " << rvVals.size() << endl;
         shared_ptr<RandVar> curRandVar(new RandVar(nextRandVarId++, rvVals));
         
         randVars.push_back(curRandVar);

@@ -24,6 +24,7 @@ set(wifiSeq_SRC
         src/main.cpp
         src/LocationWiFi.cpp
         src/WiFiSeqFeatures.cpp
+        src/Stepometer.cpp
         src/pgm/Inference.cpp
         src/pgm/ParamEst.cpp
         src/pgm/ParamEstSGD.cpp

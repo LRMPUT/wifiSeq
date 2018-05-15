@@ -209,7 +209,7 @@ void Inference::treeReparametrize(const std::vector<std::shared_ptr<Cluster>>& c
 //		if(msgCnt % 10000 == 0){
 //			cout << "msg " << msgCnt << endl;
 //		}
-		cout << "Passing message from " << srcId << " to " << dstId << endl;
+//		cout << "Passing message from " << srcId << " to " << dstId << endl;
 
 
 //		int clustType = -1;
@@ -244,7 +244,7 @@ void Inference::treeReparametrize(const std::vector<std::shared_ptr<Cluster>>& c
 //			}
 //		}
 
-		cout << "Message passed" << endl;
+//		cout << "Message passed" << endl;
 
 		msgsNotReceived[dstId].erase(srcId);
 

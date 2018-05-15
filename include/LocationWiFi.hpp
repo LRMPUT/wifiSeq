@@ -36,6 +36,7 @@ class LocationWiFi {
 public:
     LocationWiFi() {}
     
+    uint64_t timestamp;
     LocationXY locationXY;
     std::vector<ScanResult> wifiScans;
 private:
