@@ -6,7 +6,11 @@
 
 #include <opencv2/opencv.hpp>
 
+#include "pgm/Pgm.h"
+#include "pgm/Inference.h"
+
 #include "LocationWiFi.hpp"
+#include "WiFiSeqFeatures.hpp"
 
 using namespace std;
 
@@ -14,11 +18,14 @@ static constexpr int ssThreshold = -100;
 static constexpr double sharedPercentThreshold = 0.6;
 
 // in meters
-static constexpr double mapGrid = 1.0;
+static constexpr double mapGrid = 2.0;
 static constexpr double mapMinX = 0.0;
-static constexpr double mapMaxX = 140.0;
+static constexpr double mapMaxX = 130.0;
 static constexpr double mapMinY = 0.0;
-static constexpr double mapMaxY = 45.0;
+static constexpr double mapMaxY = 40.0;
+
+static constexpr int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
+static constexpr int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
 
 static constexpr double wifiSigma = 1.0/8.0;
 
@@ -105,7 +112,7 @@ std::vector<LocationWiFi> readMap(boost::filesystem::path dirPath,
 
 void readTrajectory(boost::filesystem::path dirPath,
                     std::vector<LocationWiFi> &wifiLocations,
-                    std::vector<double> stepDists)
+                    std::vector<double> &stepDists)
 {
     cout << "Reading trajectory" << endl;
     
@@ -188,9 +195,9 @@ LocationXY mapGridToCoord(int x, int y){
 std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
                             const std::vector<LocationWiFi> &database)
 {
-    int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
-    int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
-    vector<vector<double>> prob(mapGridSizeY, vector<double>(mapGridSizeX, 0.0));
+//    int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
+//    int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
+    vector<vector<double>> prob(mapGridSizeY, vector<double>(mapGridSizeX, 0.01));
     
     for (const LocationWiFi &databaseLoc : database) {
         pair<double, int> error = errorL2(loc, databaseLoc);
@@ -200,7 +207,7 @@ std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
         if (sharedPercentA > sharedPercentThreshold &&
             sharedPercentB > sharedPercentThreshold)
         {
-            cout << "matched scan" << endl;
+//            cout << "matched scan" << endl;
             // adding Gaussian kernel placed at databaseLoc and weighted with error
             for (int mapYIdx = 0; mapYIdx < prob.size(); ++mapYIdx) {
                 for (int mapXIdx = 0; mapXIdx < prob[mapYIdx].size(); ++mapXIdx) {
@@ -223,10 +230,10 @@ std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
     return prob;
 }
 
-void visualizeMap(const std::vector<LocationWiFi> &database,
-                  const std::vector<std::vector<double>> &prob,
-                  const cv::Mat &mapImage,
-                  const double &mapScale)
+void visualizeMapProb(const std::vector<LocationWiFi> &database,
+                      const std::vector<std::vector<double>> &prob,
+                      const cv::Mat &mapImage,
+                      const double &mapScale)
 {
     cv::Mat mapVis = mapImage.clone();
     for(const LocationWiFi &curLoc : database){
@@ -260,7 +267,241 @@ void visualizeMap(const std::vector<LocationWiFi> &database,
     
     cv::imshow("map", vis);
     
+    cv::waitKey(10);
+}
+
+void visualizeMapInfer(const std::vector<LocationWiFi> &database,
+                       const std::vector<LocationWiFi> &trajLocations,
+                       const cv::Mat &mapImage,
+                       const double &mapScale)
+{
+    cv::Mat mapVis = mapImage.clone();
+    for(const LocationWiFi &curLoc : database){
+        cv::Point2d pt(curLoc.locationXY.x, curLoc.locationXY.y);
+        cv::circle(mapVis, pt * mapScale, 5, cv::Scalar(0, 0, 255), CV_FILLED);
+    }
+//    cv::Mat probVal(mapImage.rows, mapImage.cols, CV_32FC1, cv::Scalar(0));
+//    cv::Mat probVis(mapImage.rows, mapImage.cols, CV_8UC3, cv::Scalar(0));
+//    double maxVal = 0.0;
+//    for (int mapYIdx = 0; mapYIdx < prob.size(); ++mapYIdx) {
+//        for (int mapXIdx = 0; mapXIdx < prob[mapYIdx].size(); ++mapXIdx) {
+//            double val = prob[mapYIdx][mapXIdx] * probVisScale;
+////            cout << "val = " << val << endl;
+//            maxVal = max(val, maxVal);
+//
+//            LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
+//
+//            cv::Point2d pt1(mapCoord.x - mapGrid/2, mapCoord.y - mapGrid/2);
+//            cv::Point2d pt2(mapCoord.x + mapGrid/2, mapCoord.y + mapGrid/2);
+//
+//            cv::rectangle(probVal, pt1 * mapScale, pt2 * mapScale, cv::Scalar(val), CV_FILLED);
+//        }
+//    }
+//    cout << "maxVal = " << maxVal << endl;
+//
+//    probVal.convertTo(probVal, CV_8U, 256);
+//    cv::applyColorMap(probVal, probVis, cv::COLORMAP_JET);
+//
+//    cv::Mat vis = mapVis * 0.75 + probVis * 0.25;
+//    cv::resize(vis, vis, cv::Size(0, 0), 0.5, 0.5);
+    
+    
+    for(int i = 0; i < trajLocations.size(); ++i){
+        const LocationWiFi &curLoc = trajLocations[i];
+        cv::Point2d pt(curLoc.locationXY.x, curLoc.locationXY.y);
+        cv::circle(mapVis, pt * mapScale, 5, cv::Scalar(255, 0, 0), CV_FILLED);
+        cv::putText(mapVis, to_string(i), pt * mapScale, cv::FONT_HERSHEY_PLAIN, 1, cv::Scalar(0, 0, 0));
+    }
+    
+    cv::resize(mapVis, mapVis, cv::Size(0, 0), 0.5, 0.5);
+    
+    cv::imshow("map", mapVis);
+    
     cv::waitKey();
+}
+
+Pgm buildPgm(const std::vector<std::vector<std::vector<double>>> &probs,
+             const std::vector<double> &stepDists,
+             std::vector<double> &obsVec,
+             std::map<int, int> &locIdxToVarClusterId)
+{
+    std::vector<std::shared_ptr<RandVar>> randVars;
+    std::vector<std::shared_ptr<Feature>> feats;
+    std::vector<std::shared_ptr<Cluster>> clusters;
+//    vector<double> obsVec;
+    obsVec.clear();
+    
+    // observation vector
+    // location coordinates
+    vector<double> xCoords, yCoords;
+    vector<double> rvVals;
+    int mapSize = 0;
+    for (int mapYIdx = 0; mapYIdx < probs[0].size(); ++mapYIdx) {
+        for (int mapXIdx = 0; mapXIdx < probs[0][mapYIdx].size(); ++mapXIdx) {
+            LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
+            xCoords.push_back(mapCoord.x);
+            yCoords.push_back(mapCoord.y);
+            rvVals.push_back(mapSize++);
+        }
+    }
+    int obsVecStartLoc = 0;
+    obsVec.insert(obsVec.end(), xCoords.begin(), xCoords.end());
+    obsVec.insert(obsVec.end(), yCoords.begin(), yCoords.end());
+    
+    vector<int> obsVecStartProb;
+    for(int i = 0; i < probs.size(); ++i){
+        obsVecStartProb.push_back(obsVec.size());
+        for (int mapYIdx = 0; mapYIdx < probs[i].size(); ++mapYIdx) {
+            for (int mapXIdx = 0; mapXIdx < probs[i][mapYIdx].size(); ++mapXIdx) {
+                obsVec.push_back(probs[i][mapYIdx][mapXIdx]);
+            }
+        }
+    }
+    int obsVecStartDist = obsVec.size();
+    for(int i = 0; i < probs.size(); ++i){
+        obsVec.push_back(stepDists[i]);
+    }
+    
+    // random variables
+    int nextRandVarId = 0;
+    for(int i = 0; i < probs.size(); ++i){
+        locIdxToVarClusterId[i] = nextRandVarId;
+        
+        shared_ptr<RandVar> curRandVar(new RandVar(nextRandVarId++, rvVals));
+        
+        randVars.push_back(curRandVar);
+    }
+    
+    // features
+    int nextFeatId = 0;
+    int nextParamId = 0;
+    // location features
+    vector<shared_ptr<Feature>> locFeats;
+    for(int i = 0; i < probs.size(); ++i){
+        vector<int> curObsVecIdxs(mapSize);
+        iota(curObsVecIdxs.begin(), curObsVecIdxs.end(), obsVecStartProb[i]);
+        
+        shared_ptr<Feature> curFeat(new LocFeature(nextFeatId++,
+                                                   nextParamId,
+                                                   vector<shared_ptr<RandVar>>{randVars[i]},
+                                                   curObsVecIdxs));
+        
+        locFeats.push_back(curFeat);
+        feats.push_back(curFeat);
+    }
+    ++nextParamId;
+    
+    // move features
+    vector<shared_ptr<Feature>> moveFeats;
+    // skip first one, as there is no distance from previous location
+    for(int i = 1; i < probs.size(); ++i){
+        vector<int> curObsVecIdxs(1 + 2*mapSize);
+        curObsVecIdxs[0] = obsVecStartDist + i;
+        // x coordinates
+        iota(curObsVecIdxs.begin() + 1, curObsVecIdxs.begin() + 1 + mapSize, obsVecStartLoc);
+        // y coordinates
+        iota(curObsVecIdxs.begin() + 1 + mapSize, curObsVecIdxs.begin() + 1 + 2*mapSize, obsVecStartLoc + mapSize);
+        
+        shared_ptr<Feature> curFeat(new MoveFeature(nextFeatId++,
+                                                    nextParamId,
+                                                    vector<shared_ptr<RandVar>>{randVars[i-1], randVars[i]},
+                                                    curObsVecIdxs,
+                                                    mapSize,
+                                                    1.0/2.0));
+        
+        moveFeats.push_back(curFeat);
+        feats.push_back(curFeat);
+    }
+    ++nextParamId;
+    
+    //clusters
+    int nextClusterId = 0;
+    vector<shared_ptr<Cluster>> rvClusters;
+    for(int i = 0; i < probs.size(); ++i){
+        shared_ptr<Cluster> curCluster(new Cluster(nextClusterId++,
+                                                   vector<shared_ptr<Feature>>{},
+                                                   vector<shared_ptr<RandVar>>{randVars[i]}));
+        
+        rvClusters.push_back(curCluster);
+        clusters.push_back(curCluster);
+    }
+    
+    vector<shared_ptr<Cluster>> locFeatClusters;
+    for(int i = 0; i < probs.size(); ++i){
+        shared_ptr<Cluster> curCluster(new Cluster(nextClusterId++,
+                                                   vector<shared_ptr<Feature>>{locFeats[i]},
+                                                   vector<shared_ptr<RandVar>>{randVars[i]}));
+    
+        locFeatClusters.push_back(curCluster);
+        clusters.push_back(curCluster);
+    }
+    
+    vector<shared_ptr<Cluster>> moveFeatClusters;
+    for(int i = 1; i < probs.size(); ++i){
+        shared_ptr<Cluster> curCluster(new Cluster(nextClusterId++,
+                                                   vector<shared_ptr<Feature>>{moveFeats[i - 1]},
+                                                   vector<shared_ptr<RandVar>>{randVars[i - 1], randVars[i]}));
+    
+        moveFeatClusters.push_back(curCluster);
+        clusters.push_back(curCluster);
+    }
+    
+    // create pgm
+    Pgm pgm(randVars, clusters, feats);
+    
+    // edges from random variable clusters to location feature clusters
+    for(int i = 0; i < probs.size(); ++i){
+        pgm.addEdgeToPgm(rvClusters[i], locFeatClusters[i], vector<shared_ptr<RandVar>>{randVars[i]});
+    }
+    
+    for(int i = 1; i < probs.size(); ++i){
+        pgm.addEdgeToPgm(rvClusters[i - 1], moveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i - 1]});
+        pgm.addEdgeToPgm(rvClusters[i], moveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i]});
+    }
+    
+    return pgm;
+}
+
+vector<LocationXY> inferLocations(int nloc,
+                                  const Pgm &pgm,
+                                  const vector<double> &obsVec,
+                                  const std::map<int, int> &locIdxToVarClusterId)
+{
+    vector<LocationXY> retLoc;
+    
+    vector<vector<double>> marg;
+    vector<vector<vector<double>>> msgs;
+    vector<double> params{1.0, 1.0};
+    
+    bool calibrated = Inference::compMAPParam(pgm,
+                                            marg,
+                                            msgs,
+                                            params,
+                                            obsVec);
+    
+    cout << "calibrated = " << calibrated << endl;
+    
+    vector<vector<double>> retVals = Inference::decodeMAP(pgm,
+                                                         marg,
+                                                         msgs,
+                                                         params,
+                                                         obsVec);
+    
+    for(int i = 0; i < nloc; ++i){
+        int varClusterId = locIdxToVarClusterId.at(i);
+        const vector<double> &curVals = retVals[varClusterId];
+        
+        int curLoc = curVals.front();
+        
+        int mapXIdx = curLoc % mapGridSizeX;
+        int mapYIdx = curLoc / mapGridSizeX;
+        
+        LocationXY curLocXY = mapGridToCoord(mapXIdx, mapYIdx);
+        
+        retLoc.push_back(curLocXY);
+    }
+    
+    return retLoc;
 }
 
 int main() {
@@ -276,8 +517,32 @@ int main() {
     vector<double> stepDists;
     readTrajectory(trajDirPath, trajLocations, stepDists);
     
+    vector<vector<vector<double>>> probs;
     for(int i = 0; i < trajLocations.size(); ++i){
-        vector<vector<double>> prob = locationProb(trajLocations[i], mapLocations);
-        visualizeMap(mapLocations, prob, mapImage, mapScale);
+        vector<vector<double>> curProb = locationProb(trajLocations[i], mapLocations);
+        visualizeMapProb(mapLocations, curProb, mapImage, mapScale);
+        
+        probs.push_back(curProb);
     }
+    
+    vector<double> obsVec;
+    map<int, int> locIdxToRandVarClusterId;
+    Pgm pgm = buildPgm(probs,
+                       stepDists,
+                       obsVec,
+                       locIdxToRandVarClusterId);
+    
+    vector<LocationXY> infLoc = inferLocations(probs.size(),
+                                               pgm,
+                                               obsVec,
+                                               locIdxToRandVarClusterId);
+    
+    for(int i = 0; i < infLoc.size(); ++i){
+        trajLocations[i].locationXY = infLoc[i];
+    }
+    
+    visualizeMapInfer(mapLocations,
+                      trajLocations,
+                      mapImage,
+                      mapScale);
 }
