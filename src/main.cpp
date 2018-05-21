@@ -9,6 +9,7 @@
 
 #include "pgm/Pgm.h"
 #include "pgm/Inference.h"
+#include "pgm/ParamEst.h"
 
 #include "LocationWiFi.hpp"
 #include "WiFiSeqFeatures.hpp"
@@ -29,6 +30,7 @@ static constexpr int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
 static constexpr int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
 
 static constexpr double wifiSigma = 1.0/8.0;
+static constexpr double errorSigma = 0.8;
 
 static constexpr double probVisScale = 25;
 
@@ -117,7 +119,7 @@ void readTrajectory(boost::filesystem::path dirPath,
 {
     cout << "Reading trajectory" << endl;
     
-    ifstream wifiFile((dirPath / "wifi.raw").c_str());
+    ifstream wifiFile((dirPath / "wifi.map").c_str());
     if(!wifiFile.is_open()){
         cout << "Error! Could not open " << (dirPath / "wifi.raw").c_str() << " file" << endl;
     }
@@ -155,10 +157,26 @@ void readTrajectory(boost::filesystem::path dirPath,
         }
     }
     
+    ifstream positionsFile((dirPath / "positions.map").c_str());
+    if(!positionsFile.is_open()){
+        cout << "Error! Could not open " << (dirPath / "positions.map").c_str() << " file" << endl;
+    }
+    while(!positionsFile.eof() && !positionsFile.fail()){
+        int id;
+        double x, y;
+        positionsFile >> id >> x >> y;
+//        cout << "id = " << id << endl;
+        if(!positionsFile.fail()){
+            if(id >= 0 && id < wifiLocations.size()) {
+                wifiLocations[id].locationXY = LocationXY(x, y);
+            }
+        }
+    }
+    
     // distances from stepometer
     stepDists.clear();
     
-    ifstream accFile((dirPath / "acc.raw").c_str());
+    ifstream accFile((dirPath / "acc.map").c_str());
     if(!accFile.is_open()){
         cout << "Error! Could not open " << (dirPath / "acc.raw").c_str() << " file" << endl;
     }
@@ -248,10 +266,12 @@ LocationXY mapGridToCoord(int x, int y){
 std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
                             const std::vector<LocationWiFi> &database)
 {
+
 //    int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
 //    int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
     vector<vector<double>> prob(mapGridSizeY, vector<double>(mapGridSizeX, 0));
     
+    int nMatchedScans = 0;
     for (const LocationWiFi &databaseLoc : database) {
         pair<double, int> error = errorL2(loc, databaseLoc);
         double sharedPercentA = (double) error.second / loc.wifiScans.size();
@@ -272,14 +292,16 @@ std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
                     double dy = mapCoord.y - databaseLoc.locationXY.y;
                     double expVal = -(dx * dx * wifiSigma * wifiSigma +
                                       dy * dy * wifiSigma * wifiSigma);
-                    expVal += -error.first;
+                    expVal += -errorSigma * errorSigma * error.first;
                     
 //                    cout << "expVal = " << expVal << endl;
                     prob[mapYIdx][mapXIdx] += exp(expVal);
                 }
             }
+            ++nMatchedScans;
         }
     }
+    cout << "nMatchedScans = " << nMatchedScans << endl;
     return prob;
 }
 
@@ -298,18 +320,34 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
     double maxVal = 0.0;
     for (int mapYIdx = 0; mapYIdx < prob.size(); ++mapYIdx) {
         for (int mapXIdx = 0; mapXIdx < prob[mapYIdx].size(); ++mapXIdx) {
-            double val = prob[mapYIdx][mapXIdx] * probVisScale;
+            double val = prob[mapYIdx][mapXIdx];
 //            cout << "val = " << val << endl;
             maxVal = max(val, maxVal);
             
-            LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
-            
-            cv::Point2d pt1(mapCoord.x - mapGrid/2, mapCoord.y - mapGrid/2);
-            cv::Point2d pt2(mapCoord.x + mapGrid/2, mapCoord.y + mapGrid/2);
-            
-            cv::rectangle(probVal, pt1 * mapScale, pt2 * mapScale, cv::Scalar(val), CV_FILLED);
+//            LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
+//
+//            cv::Point2d pt1(mapCoord.x - mapGrid/2, mapCoord.y - mapGrid/2);
+//            cv::Point2d pt2(mapCoord.x + mapGrid/2, mapCoord.y + mapGrid/2);
+//
+//            cv::rectangle(probVal, pt1 * mapScale, pt2 * mapScale, cv::Scalar(val * probVisScale), CV_FILLED);
         }
     }
+    double valThresh = min(0.1, maxVal/2.0);
+    for (int mapYIdx = 0; mapYIdx < prob.size(); ++mapYIdx) {
+        for (int mapXIdx = 0; mapXIdx < prob[mapYIdx].size(); ++mapXIdx) {
+            double val = prob[mapYIdx][mapXIdx];
+//            cout << "val = " << val << endl;
+            if(val > valThresh) {
+                LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
+    
+                cv::Point2d pt1(mapCoord.x - mapGrid / 2, mapCoord.y - mapGrid / 2);
+                cv::Point2d pt2(mapCoord.x + mapGrid / 2, mapCoord.y + mapGrid / 2);
+    
+                cv::rectangle(probVal, pt1 * mapScale, pt2 * mapScale, cv::Scalar(0.5), CV_FILLED);
+            }
+        }
+    }
+    
     cout << "maxVal = " << maxVal << endl;
     
     probVal.convertTo(probVal, CV_8U, 256);
@@ -373,10 +411,12 @@ void visualizeMapInfer(const std::vector<LocationWiFi> &database,
     cv::waitKey();
 }
 
-Pgm buildPgm(const std::vector<std::vector<std::vector<double>>> &probs,
+Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
+             const std::vector<std::vector<std::vector<double>>> &probs,
              const std::vector<double> &stepDists,
              std::vector<double> &obsVec,
-             std::map<int, int> &locIdxToVarClusterId)
+             std::map<int, int> &locIdxToVarClusterId,
+             std::vector<double> &varVals)
 {
     std::vector<std::shared_ptr<RandVar>> randVars;
     std::vector<std::shared_ptr<Feature>> feats;
@@ -428,18 +468,42 @@ Pgm buildPgm(const std::vector<std::vector<std::vector<double>>> &probs,
             }
         }
     
-        double valThresh = min(0.01, maxProb/2.0);
+        int locX = std::round(wifiLocations[i].locationXY.x);
+        int locY = std::round(wifiLocations[i].locationXY.y);
+        double varVal = locX + mapGridSizeX * locY;
+        double closestDist = std::numeric_limits<double>::max();
+        double closestVarVal = varVal;
+        
+        double probThresh = min(0.1, maxProb/2.0);
         vector<double> rvVals;
         int mapIdx = 0;
         for (int mapYIdx = 0; mapYIdx < probs[i].size(); ++mapYIdx) {
             for (int mapXIdx = 0; mapXIdx < probs[i][mapYIdx].size(); ++mapXIdx) {
-                if(probs[i][mapYIdx][mapXIdx] > valThresh){
+                if(probs[i][mapYIdx][mapXIdx] > probThresh){
                     rvVals.push_back(mapIdx);
+                    
+                    LocationXY loc = mapGridToCoord(mapXIdx, mapYIdx);
+                    double dist = sqrt((loc.x - locX)*(loc.x - locX) + (loc.y - locY)*(loc.y - locY));
+                    if(dist < closestDist){
+                        closestDist = dist;
+                        closestVarVal = mapIdx;
+                    }
                 }
                 ++mapIdx;
             }
         }
         cout << "rvVals.size() = " << rvVals.size() << endl;
+        
+        
+        varVals.push_back(varVal);
+        if(find(rvVals.begin(), rvVals.end(), varVal) == rvVals.end()){
+            cout << "Warning - varVal not in rvVals, substituting with the closest" << endl;
+            cout << "Closest distance = " << closestDist << endl;
+            
+            varVal = closestVarVal;
+        }
+        
+        
         shared_ptr<RandVar> curRandVar(new RandVar(nextRandVarId++, rvVals));
         
         randVars.push_back(curRandVar);
@@ -532,6 +596,8 @@ Pgm buildPgm(const std::vector<std::vector<std::vector<double>>> &probs,
         pgm.addEdgeToPgm(rvClusters[i], moveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i]});
     }
     
+    pgm.params() = vector<double>(nextParamId, 1.0);
+    
     return pgm;
 }
 
@@ -577,45 +643,107 @@ vector<LocationXY> inferLocations(int nloc,
     return retLoc;
 }
 
+void removeNotMatchedLocations(std::vector<LocationWiFi> &wifiLocations,
+                               std::vector<double> &stepDists,
+                               std::vector<std::vector<std::vector<double>>> &probs)
+{
+    for(int i = 0; i < probs.size(); ++i){
+        double maxVal = 0.0;
+        for (int mapYIdx = 0; mapYIdx < probs[i].size(); ++mapYIdx) {
+            for (int mapXIdx = 0; mapXIdx < probs[i][mapYIdx].size(); ++mapXIdx) {
+                double val = probs[i][mapYIdx][mapXIdx];
+
+                maxVal = max(val, maxVal);
+                
+            }
+        }
+        
+        if(maxVal < 1e-5){
+            if(i < probs.size() - 1){
+                // adding distance to next location
+                stepDists[i + 1] += stepDists[i];
+            }
+            
+            wifiLocations.erase(wifiLocations.begin() + i);
+            stepDists.erase(stepDists.begin() + i);
+            probs.erase(probs.begin() + i);
+            
+            --i;
+        }
+    }
+}
+
 int main() {
-    boost::filesystem::path mapDirPath("../res/Maps/PUTMC_Lenovo_17_05_25");
+    static constexpr bool estimateParams = true;
+    static constexpr bool infer = false;
+    
+    boost::filesystem::path mapDirPath("../res/Maps/PUTMC_Lenovo_18_05_21");
     
     cv::Mat mapImage;
     double mapScale;
     vector<LocationWiFi> mapLocations = readMap(mapDirPath, mapImage, mapScale);
     
-    boost::filesystem::path trajDirPath("../res/Trajectories/PUTMC_Lenovo_17_05_10/PUTMC_Lenovo_013_17_05_10");
+    vector<boost::filesystem::path> trajDirPaths{"../res/Trajectories/traj1",
+                                                 "../res/Trajectories/traj2",
+                                                 "../res/Trajectories/traj3"};
     
-    vector<LocationWiFi> trajLocations;
-    vector<double> stepDists;
-    readTrajectory(trajDirPath, trajLocations, stepDists);
+    vector<Pgm> pgms;
+    vector<vector<double>> obsVecs;
+    vector<vector<double>> varVals;
     
-    vector<vector<vector<double>>> probs;
-    for(int i = 0; i < trajLocations.size(); ++i){
-        vector<vector<double>> curProb = locationProb(trajLocations[i], mapLocations);
-        visualizeMapProb(mapLocations, curProb, mapImage, mapScale);
+    for(int t = 0; t < trajDirPaths.size(); ++t) {
+    
+        vector<LocationWiFi> curTrajLocations;
+        vector<double> curStepDists;
+        readTrajectory(trajDirPaths[t], curTrajLocations, curStepDists);
+    
+        vector<vector<vector<double>>> curProbs;
+        for (int i = 0; i < curTrajLocations.size(); ++i) {
+            vector<vector<double>> curProb = locationProb(curTrajLocations[i], mapLocations);
+            visualizeMapProb(mapLocations, curProb, mapImage, mapScale);
         
-        probs.push_back(curProb);
+            curProbs.push_back(curProb);
+        }
+    
+        removeNotMatchedLocations(curTrajLocations,
+                                  curStepDists,
+                                  curProbs);
+    
+        vector<double> curObsVec;
+        map<int, int> curLocIdxToRandVarClusterId;
+        vector<double> curVarVals;
+        Pgm curPgm = buildPgm(curTrajLocations,
+                           curProbs,
+                           curStepDists,
+                           curObsVec,
+                           curLocIdxToRandVarClusterId,
+                           curVarVals);
+    
+        if(infer) {
+            vector<LocationXY> infLoc = inferLocations(curProbs.size(),
+                                                       curPgm,
+                                                       curObsVec,
+                                                       curLocIdxToRandVarClusterId);
+    
+            for (int i = 0; i < infLoc.size(); ++i) {
+                curTrajLocations[i].locationXY = infLoc[i];
+            }
+    
+            visualizeMapInfer(mapLocations,
+                              curTrajLocations,
+                              mapImage,
+                              mapScale);
+        }
+        
+        pgms.push_back(curPgm);
+        varVals.push_back(curVarVals);
+        obsVecs.push_back(curObsVec);
     }
-    
-    vector<double> obsVec;
-    map<int, int> locIdxToRandVarClusterId;
-    Pgm pgm = buildPgm(probs,
-                       stepDists,
-                       obsVec,
-                       locIdxToRandVarClusterId);
-    
-    vector<LocationXY> infLoc = inferLocations(probs.size(),
-                                               pgm,
-                                               obsVec,
-                                               locIdxToRandVarClusterId);
-    
-    for(int i = 0; i < infLoc.size(); ++i){
-        trajLocations[i].locationXY = infLoc[i];
+    if(estimateParams){
+        cout << "estimating parameters" << endl;
+        ParamEst paramEst;
+        paramEst.estimateParams(pgms,
+                                 varVals,
+                                 obsVecs);
     }
-    
-    visualizeMapInfer(mapLocations,
-                      trajLocations,
-                      mapImage,
-                      mapScale);
 }
