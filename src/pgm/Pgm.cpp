@@ -245,6 +245,10 @@ double Cluster::compSumHcdiv(const std::vector<std::vector<double> >& inMsgs,
 
 			Hcdiv += curMarg * log(curMarg/factorVal);
 
+//			if(std::isnan(Hcdiv)){
+//				cout << "curMarg = " << curMarg << ", factorVal = " << factorVal << endl;
+//			}
+			
 			numVarValIdxs += 1;
 		}while(Pgm::incVarValIdxs(varValIdxs, randVarsData));
 

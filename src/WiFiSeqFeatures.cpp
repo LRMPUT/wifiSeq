@@ -21,7 +21,12 @@ LocFeature::LocFeature(int iid,
 double LocFeature::comp(const std::vector<double> &vals, const std::vector<double> &obsVec) {
     int loc = (int)round(vals[0]);
     
-    return log(obsVec[loc]);
+    double ret = log(obsVec[loc]);
+    ret = std::max(ret, -100.0);
+    if(std::isnan(ret) || std::isinf(ret)){
+        ret = 0;
+    }
+    return ret;
 }
 
 double LocFeature::compParam(const std::vector<double> &vals,
@@ -62,7 +67,12 @@ double MoveFeature::comp(const std::vector<double> &vals, const std::vector<doub
     
     double distDiff = dist - distStep;
     
-    return -(distDiff*distDiff * sigmaDist*sigmaDist);
+    double ret = -(distDiff*distDiff / (sigmaDist*sigmaDist));
+    ret = std::max(ret, -10.0);
+    if(std::isnan(ret) || std::isinf(ret)){
+        ret = 0;
+    }
+    return ret;
 }
 
 double MoveFeature::compParam(const std::vector<double> &vals,

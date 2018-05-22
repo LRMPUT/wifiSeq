@@ -29,14 +29,24 @@ static constexpr double mapMaxY = 40.0;
 static constexpr int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
 static constexpr int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
 
-static constexpr double wifiSigma = 1.0/8.0;
-static constexpr double errorSigma = 0.8;
+static constexpr double wifiSigma = 8.0;
+static constexpr double errorSigma = 2;
+static constexpr double distSigma = 8.0;
 
-static constexpr double probVisScale = 25;
+static constexpr double probThresh = 0.03;
+
+static constexpr double probRatio = 2.0;
+
+static constexpr double probScale = 1.0/5.0;
+
+static constexpr double probVisScale = 0.5;
+
+
+
 
 std::vector<LocationWiFi> readMap(boost::filesystem::path dirPath,
-                             cv::Mat &mapImage,
-                             double &mapImageScale)
+                                  cv::Mat &mapImage,
+                                  double &mapImageScale)
 {
     cout << "Reading map" << endl;
     
@@ -269,7 +279,7 @@ std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
 
 //    int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
 //    int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
-    vector<vector<double>> prob(mapGridSizeY, vector<double>(mapGridSizeX, 0));
+    vector<vector<double>> prob(mapGridSizeY, vector<double>(mapGridSizeX, 0.01));
     
     int nMatchedScans = 0;
     for (const LocationWiFi &databaseLoc : database) {
@@ -290,12 +300,12 @@ std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
 //                    cout << "databaseLoc.locationXY = (" << databaseLoc.locationXY.x << ", " << databaseLoc.locationXY.y << ")" << endl;
                     double dx = mapCoord.x - databaseLoc.locationXY.x;
                     double dy = mapCoord.y - databaseLoc.locationXY.y;
-                    double expVal = -(dx * dx * wifiSigma * wifiSigma +
-                                      dy * dy * wifiSigma * wifiSigma);
-                    expVal += -errorSigma * errorSigma * error.first;
+                    double expVal = -(dx * dx / (wifiSigma * wifiSigma) +
+                                      dy * dy / (wifiSigma * wifiSigma));
+                    expVal += -error.first / (errorSigma * errorSigma);
                     
 //                    cout << "expVal = " << expVal << endl;
-                    prob[mapYIdx][mapXIdx] += exp(expVal);
+                    prob[mapYIdx][mapXIdx] += exp(expVal) * probScale;
                 }
             }
             ++nMatchedScans;
@@ -307,6 +317,7 @@ std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
 
 void visualizeMapProb(const std::vector<LocationWiFi> &database,
                       const std::vector<std::vector<double>> &prob,
+                      const double &varVal,
                       const cv::Mat &mapImage,
                       const double &mapScale)
 {
@@ -317,41 +328,50 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
     }
     cv::Mat probVal(mapImage.rows, mapImage.cols, CV_32FC1, cv::Scalar(0));
     cv::Mat probVis(mapImage.rows, mapImage.cols, CV_8UC3, cv::Scalar(0));
-    double maxVal = 0.0;
+
+    double maxProb = 0.0;
     for (int mapYIdx = 0; mapYIdx < prob.size(); ++mapYIdx) {
         for (int mapXIdx = 0; mapXIdx < prob[mapYIdx].size(); ++mapXIdx) {
             double val = prob[mapYIdx][mapXIdx];
 //            cout << "val = " << val << endl;
-            maxVal = max(val, maxVal);
+            maxProb = max(val, maxProb);
             
-//            LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
-//
-//            cv::Point2d pt1(mapCoord.x - mapGrid/2, mapCoord.y - mapGrid/2);
-//            cv::Point2d pt2(mapCoord.x + mapGrid/2, mapCoord.y + mapGrid/2);
-//
-//            cv::rectangle(probVal, pt1 * mapScale, pt2 * mapScale, cv::Scalar(val * probVisScale), CV_FILLED);
+            LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
+
+            cv::Point2d pt1(mapCoord.x - mapGrid/2, mapCoord.y - mapGrid/2);
+            cv::Point2d pt2(mapCoord.x + mapGrid/2, mapCoord.y + mapGrid/2);
+
+            cv::rectangle(probVal, pt1 * mapScale, pt2 * mapScale, cv::Scalar(val * probVisScale), CV_FILLED);
         }
     }
-    double valThresh = min(0.1, maxVal/2.0);
-    for (int mapYIdx = 0; mapYIdx < prob.size(); ++mapYIdx) {
-        for (int mapXIdx = 0; mapXIdx < prob[mapYIdx].size(); ++mapXIdx) {
-            double val = prob[mapYIdx][mapXIdx];
-//            cout << "val = " << val << endl;
-            if(val > valThresh) {
-                LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
+//    double curProbThresh = min(probThresh, maxProb / probRatio);
+//    for (int mapYIdx = 0; mapYIdx < prob.size(); ++mapYIdx) {
+//        for (int mapXIdx = 0; mapXIdx < prob[mapYIdx].size(); ++mapXIdx) {
+//            double val = prob[mapYIdx][mapXIdx];
+////            cout << "val = " << val << endl;
+//            if(val >= curProbThresh) {
+//                LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
+//
+//                cv::Point2d pt1(mapCoord.x - mapGrid / 2, mapCoord.y - mapGrid / 2);
+//                cv::Point2d pt2(mapCoord.x + mapGrid / 2, mapCoord.y + mapGrid / 2);
+//
+//                cv::rectangle(probVal, pt1 * mapScale, pt2 * mapScale, cv::Scalar(0.5), CV_FILLED);
+//            }
+//        }
+//    }
     
-                cv::Point2d pt1(mapCoord.x - mapGrid / 2, mapCoord.y - mapGrid / 2);
-                cv::Point2d pt2(mapCoord.x + mapGrid / 2, mapCoord.y + mapGrid / 2);
-    
-                cv::rectangle(probVal, pt1 * mapScale, pt2 * mapScale, cv::Scalar(0.5), CV_FILLED);
-            }
-        }
-    }
-    
-    cout << "maxVal = " << maxVal << endl;
+    cout << "maxProb = " << maxProb << endl;
     
     probVal.convertTo(probVal, CV_8U, 256);
     cv::applyColorMap(probVal, probVis, cv::COLORMAP_JET);
+    
+    {
+        int mapXIdx = ((int)varVal) % mapGridSizeX;
+        int mapYIdx = ((int)varVal) / mapGridSizeX;
+        LocationXY loc = mapGridToCoord(mapXIdx, mapYIdx);
+        cv::Point2d pt(loc.x, loc.y);
+        cv::circle(mapVis, pt * mapScale, 5, cv::Scalar(0, 255, 0), CV_FILLED);
+    }
     
     cv::Mat vis = mapVis * 0.75 + probVis * 0.25;
     cv::resize(vis, vis, cv::Size(0, 0), 0.5, 0.5);
@@ -474,12 +494,12 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         double closestDist = std::numeric_limits<double>::max();
         double closestVarVal = varVal;
         
-        double probThresh = min(0.1, maxProb/2.0);
+        double curProbThresh = min(probThresh, maxProb / probRatio);
         vector<double> rvVals;
         int mapIdx = 0;
         for (int mapYIdx = 0; mapYIdx < probs[i].size(); ++mapYIdx) {
             for (int mapXIdx = 0; mapXIdx < probs[i][mapYIdx].size(); ++mapXIdx) {
-                if(probs[i][mapYIdx][mapXIdx] > probThresh){
+                if(probs[i][mapYIdx][mapXIdx] >= curProbThresh){
                     rvVals.push_back(mapIdx);
                     
                     LocationXY loc = mapGridToCoord(mapXIdx, mapYIdx);
@@ -544,7 +564,7 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
                                                     vector<shared_ptr<RandVar>>{randVars[i-1], randVars[i]},
                                                     curObsVecIdxs,
                                                     mapSize,
-                                                    1.0/2.0));
+                                                    distSigma));
         
         moveFeats.push_back(curFeat);
         feats.push_back(curFeat);
@@ -677,7 +697,7 @@ int main() {
     static constexpr bool estimateParams = true;
     static constexpr bool infer = false;
     
-    boost::filesystem::path mapDirPath("../res/Maps/PUTMC_Lenovo_18_05_21");
+    boost::filesystem::path mapDirPath("../res/Maps/PUTMC_Lenovo_18_05_21_full");
     
     cv::Mat mapImage;
     double mapScale;
@@ -700,7 +720,6 @@ int main() {
         vector<vector<vector<double>>> curProbs;
         for (int i = 0; i < curTrajLocations.size(); ++i) {
             vector<vector<double>> curProb = locationProb(curTrajLocations[i], mapLocations);
-            visualizeMapProb(mapLocations, curProb, mapImage, mapScale);
         
             curProbs.push_back(curProb);
         }
@@ -718,6 +737,10 @@ int main() {
                            curObsVec,
                            curLocIdxToRandVarClusterId,
                            curVarVals);
+    
+        for (int i = 0; i < curTrajLocations.size(); ++i) {
+            visualizeMapProb(mapLocations, curProbs[i], curVarVals[i], mapImage, mapScale);
+        }
     
         if(infer) {
             vector<LocationXY> infLoc = inferLocations(curProbs.size(),

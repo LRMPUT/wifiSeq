@@ -619,7 +619,7 @@ bool Inference::compMarginalsParam(const Pgm& pgm,
 			marg[c] = compCurMarginal(pgm.constClusters()[c], SumProduct, msgs[pgm.constClusters()[c]->id()], params, obsVec);
 		}
 	}
-
+	
 //	cout << "Computing partition function" << endl;
 	//Compute partition function
 	//Bethe free energy approximation
@@ -636,6 +636,9 @@ bool Inference::compMarginalsParam(const Pgm& pgm,
 			double Hs = 0.0;
 			for(int val = 0; val < (int)pgm.constClusters()[c]->randVars().front()->vals().size(); ++val){
 				Hs += marg[c][val] * log(marg[c][val]);
+				if(std::isnan(log(marg[c][val]))){
+				    cout << "marg[" << c << "] = " << marg[c] << endl;
+				}
 			}
 			//Every nh cluster represents factor
 			int deg = pgm.constClusters()[c]->nh().size();
@@ -648,7 +651,14 @@ bool Inference::compMarginalsParam(const Pgm& pgm,
 			double Hcdiv = pgm.constClusters()[c]->compSumHcdiv(msgs[pgm.constClusters()[c]->id()],
 																params,
 																obsVec);
-//			cout << "Hcdiv = " << Hcdiv << endl;
+//            if(std::isnan(Hcdiv)){
+//                cout << "Hcdiv = " << Hcdiv << endl;
+//            }
+//
+//            Hcdiv = pgm.constClusters()[c]->compSumHcdiv(msgs[pgm.constClusters()[c]->id()],
+//                                                                params,
+//                                                                obsVec);
+			//			cout << "Hcdiv = " << Hcdiv << endl;
 
 			logPartFunc -= Hcdiv;
 		}
