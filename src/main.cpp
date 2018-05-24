@@ -5,7 +5,8 @@
 #include <boost/filesystem.hpp>
 
 #include <opencv2/opencv.hpp>
-#include <Stepometer.hpp>
+
+#include <tinyxml.h>
 
 #include "pgm/Pgm.h"
 #include "pgm/Inference.h"
@@ -13,6 +14,7 @@
 
 #include "LocationWiFi.hpp"
 #include "WiFiSeqFeatures.hpp"
+#include "Stepometer.hpp"
 
 using namespace std;
 
@@ -33,7 +35,10 @@ static constexpr double wifiSigma = 8.0;
 static constexpr double errorSigma = 2;
 static constexpr double distSigma = 8.0;
 
+// parameter estimation
 static constexpr double probThresh = 0.03;
+// inference
+//static constexpr double probThresh = 0.1;
 
 static constexpr double probRatio = 2.0;
 
@@ -42,10 +47,83 @@ static constexpr double probScale = 1.0/5.0;
 static constexpr double probVisScale = 0.5;
 
 
+void selectPolygonPixels(const std::vector<cv::Point2i> &polygon,
+                         int regionId,
+                         cv::Mat& regionsOnImage)
+{
+    int polyCnt[] = {(int)polygon.size()};
+    const cv::Point2i* points[] = {polygon.data()};
+    //Point2i array
+    fillPoly(regionsOnImage, points, polyCnt, 1, cv::Scalar(regionId));
+//    int count = regionsOnImage.rows * regionsOnImage.cols - cv::countNonZero(regionsOnImage == cv::Scalar(regionId));
+//
+//    return count;
+}
+
+cv::Mat readAnnotation(const boost::filesystem::path &annotationFile,
+                       const cv::Size &imageSize,
+                       const map<string, int> &labelNameToId)
+{
+    TiXmlDocument data(annotationFile.string());
+    if(!data.LoadFile()){
+        throw "Bad data file";
+    }
+    TiXmlElement* pAnnotation = data.FirstChildElement("annotation");
+    if(!pAnnotation){
+        throw "Bad data file - no annotation entry";
+    }
+    TiXmlElement* pFile = pAnnotation->FirstChildElement("filename");
+    if(!pFile){
+        throw "Bad data file - no filename entry";
+    }
+    
+    cv::Mat annotations(imageSize, CV_32SC1, cv::Scalar(0));
+    
+    TiXmlElement* pObject = pAnnotation->FirstChildElement("object");
+    while(pObject){
+        
+        TiXmlElement* pPolygon = pObject->FirstChildElement("polygon");
+        if(!pPolygon){
+            throw "Bad data file - no polygon inside object";
+        }
+        vector<cv::Point2i> poly;
+        
+        TiXmlElement* pPt = pPolygon->FirstChildElement("pt");
+        while(pPt){
+            int x = stoi(pPt->FirstChildElement("x")->GetText());
+            int y = stoi(pPt->FirstChildElement("y")->GetText());
+            poly.push_back(cv::Point2i(x, y));
+            pPt = pPt->NextSiblingElement("pt");
+        }
+        
+        TiXmlElement* pAttributes = pObject->FirstChildElement("attributes");
+        if(!pAttributes){
+            throw "Bad data file - no object attributes";
+        }
+        string labelText = pAttributes->GetText();
+        int label = -1;
+        if(labelNameToId.count(labelText) > 0){
+            label = labelNameToId.at(labelText);
+        }
+        else{
+            throw "No such label found";
+        }
+        
+        //cout << "Selecting polygon pixels for label " << labels[label] <<  endl;
+        selectPolygonPixels(poly, label, annotations);
+        //cout << "End selecting" << endl;
+        
+        pObject = pObject->NextSiblingElement("object");
+    }
+    
+    return annotations;
+}
 
 
-std::vector<LocationWiFi> readMap(boost::filesystem::path dirPath,
+
+std::vector<LocationWiFi> readMap(const boost::filesystem::path &dirPath,
                                   cv::Mat &mapImage,
+                                  cv::Mat &obstacles,
                                   double &mapImageScale)
 {
     cout << "Reading map" << endl;
@@ -118,12 +196,18 @@ std::vector<LocationWiFi> readMap(boost::filesystem::path dirPath,
         cout << "Error! Could not open " << (dirPath / "map.png").c_str() << " file" << endl;
     }
     
+    
+    obstacles = readAnnotation(dirPath / "map.xml",
+                                mapImage.size(),
+                                map<string, int>{make_pair("obstacle", 255)});
+    
+    
     cout << "Map read" << endl;
     
     return mapLocations;
 }
 
-void readTrajectory(boost::filesystem::path dirPath,
+void readTrajectory(const boost::filesystem::path &dirPath,
                     std::vector<LocationWiFi> &wifiLocations,
                     std::vector<double> &stepDists)
 {
@@ -319,6 +403,7 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
                       const std::vector<std::vector<double>> &prob,
                       const double &varVal,
                       const cv::Mat &mapImage,
+                      const cv::Mat &mapObstacle,
                       const double &mapScale)
 {
     cv::Mat mapVis = mapImage.clone();
@@ -373,6 +458,10 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
         cv::circle(mapVis, pt * mapScale, 5, cv::Scalar(0, 255, 0), CV_FILLED);
     }
     
+    {
+        probVis.setTo(cv::Scalar(255, 255, 0), mapObstacle == 255);
+    }
+    
     cv::Mat vis = mapVis * 0.75 + probVis * 0.25;
     cv::resize(vis, vis, cv::Size(0, 0), 0.5, 0.5);
     
@@ -383,6 +472,7 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
 
 void visualizeMapInfer(const std::vector<LocationWiFi> &database,
                        const std::vector<LocationWiFi> &trajLocations,
+                       const std::vector<LocationXY> &inferLocations,
                        const cv::Mat &mapImage,
                        const double &mapScale)
 {
@@ -418,10 +508,23 @@ void visualizeMapInfer(const std::vector<LocationWiFi> &database,
     
     
     for(int i = 0; i < trajLocations.size(); ++i){
-        const LocationWiFi &curLoc = trajLocations[i];
-        cv::Point2d pt(curLoc.locationXY.x, curLoc.locationXY.y);
+        const LocationXY &infLoc = inferLocations[i];
+        cv::Point2d pt(infLoc.x, infLoc.y);
         cv::circle(mapVis, pt * mapScale, 5, cv::Scalar(255, 0, 0), CV_FILLED);
+        
         cv::putText(mapVis, to_string(i), pt * mapScale, cv::FONT_HERSHEY_PLAIN, 1, cv::Scalar(0, 0, 0));
+        if(i > 0){
+            const LocationXY &prevInfLoc = inferLocations[i-1];
+            cv::Point2d prevPt(prevInfLoc.x, prevInfLoc.y);
+            
+            cv::line(mapVis, prevPt * mapScale, pt * mapScale, cv::Scalar(255, 0, 0), 2);
+        }
+        
+        {
+            const LocationXY &gtLoc = trajLocations[i].locationXY;
+            cv::Point2d gtPt(gtLoc.x, gtLoc.y);
+            cv::circle(mapVis, gtPt * mapScale, 5, cv::Scalar(0, 255, 0), CV_FILLED);
+        }
     }
     
     cv::resize(mapVis, mapVis, cv::Size(0, 0), 0.5, 0.5);
@@ -432,6 +535,8 @@ void visualizeMapInfer(const std::vector<LocationWiFi> &database,
 }
 
 Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
+             const cv::Mat &obstacles,
+             const double &mapScale,
              const std::vector<std::vector<std::vector<double>>> &probs,
              const std::vector<double> &stepDists,
              std::vector<double> &obsVec,
@@ -443,6 +548,46 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
     std::vector<std::shared_ptr<Cluster>> clusters;
 //    vector<double> obsVec;
     obsVec.clear();
+    varVals.clear();
+    
+    set<int> forbiddenVals;
+    {
+//        cout << "obstacles.size() = " << obstacles.size() << endl;
+        int val = 0;
+        for (int mapYIdx = 0; mapYIdx < probs[0].size(); ++mapYIdx) {
+            for (int mapXIdx = 0; mapXIdx < probs[0][mapYIdx].size(); ++mapXIdx) {
+                LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
+                
+                cv::Point2d pt1(mapCoord.x - mapGrid / 2, mapCoord.y - mapGrid / 2);
+                cv::Point2d pt2(mapCoord.x + mapGrid / 2, mapCoord.y + mapGrid / 2);
+                cv::Point2i pt1i = pt1 * mapScale;
+                cv::Point2i pt2i = pt2 * mapScale;
+                pt1i.x = max(pt1i.x, 0);
+                pt1i.y = max(pt1i.y, 0);
+                pt2i.x = max(pt2i.x, 0);
+                pt2i.y = max(pt2i.y, 0);
+                pt1i.x = min(pt1i.x, obstacles.cols);
+                pt1i.y = min(pt1i.y, obstacles.rows);
+                pt2i.x = min(pt2i.x, obstacles.cols);
+                pt2i.y = min(pt2i.y, obstacles.rows);
+                
+                cv::Rect roi = cv::Rect(pt1i, pt2i);
+//                cout << "roi = " << roi << endl;
+                cv::Mat curObstacle = obstacles(roi);
+//                cout << "curObstacle = " << curObstacle << endl;
+                int obstacleCnt = cv::countNonZero(curObstacle);
+                
+//                cout << "obstacleCnt = " << obstacleCnt << endl;
+//                cout << "curObstacle.rows * curObstacle.cols / 2 = " << curObstacle.rows * curObstacle.cols / 2 << endl;
+                if(obstacleCnt > curObstacle.rows * curObstacle.cols / 2){
+                    forbiddenVals.insert(val);
+                }
+                
+                ++val;
+            }
+        }
+//        cout << "forbiddenVals.size() = " << forbiddenVals.size() << endl;
+    }
     
     // observation vector
     // location coordinates
@@ -500,13 +645,16 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         for (int mapYIdx = 0; mapYIdx < probs[i].size(); ++mapYIdx) {
             for (int mapXIdx = 0; mapXIdx < probs[i][mapYIdx].size(); ++mapXIdx) {
                 if(probs[i][mapYIdx][mapXIdx] >= curProbThresh){
-                    rvVals.push_back(mapIdx);
                     
-                    LocationXY loc = mapGridToCoord(mapXIdx, mapYIdx);
-                    double dist = sqrt((loc.x - locX)*(loc.x - locX) + (loc.y - locY)*(loc.y - locY));
-                    if(dist < closestDist){
-                        closestDist = dist;
-                        closestVarVal = mapIdx;
+                    if(forbiddenVals.count(mapIdx) == 0) {
+                        rvVals.push_back(mapIdx);
+    
+                        LocationXY loc = mapGridToCoord(mapXIdx, mapYIdx);
+                        double dist = sqrt((loc.x - locX)*(loc.x - locX) + (loc.y - locY)*(loc.y - locY));
+                        if(dist < closestDist){
+                            closestDist = dist;
+                            closestVarVal = mapIdx;
+                        }
                     }
                 }
                 ++mapIdx;
@@ -514,15 +662,13 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         }
         cout << "rvVals.size() = " << rvVals.size() << endl;
         
-        
-        varVals.push_back(varVal);
         if(find(rvVals.begin(), rvVals.end(), varVal) == rvVals.end()){
             cout << "Warning - varVal not in rvVals, substituting with the closest" << endl;
             cout << "Closest distance = " << closestDist << endl;
             
             varVal = closestVarVal;
         }
-        
+        varVals.push_back(varVal);
         
         shared_ptr<RandVar> curRandVar(new RandVar(nextRandVarId++, rvVals));
         
@@ -616,7 +762,8 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         pgm.addEdgeToPgm(rvClusters[i], moveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i]});
     }
     
-    pgm.params() = vector<double>(nextParamId, 1.0);
+//    pgm.params() = vector<double>{2.13323, 24.4968};
+    pgm.params() = vector<double>{1.0, 1.0};
     
     return pgm;
 }
@@ -694,79 +841,105 @@ void removeNotMatchedLocations(std::vector<LocationWiFi> &wifiLocations,
 }
 
 int main() {
-    static constexpr bool estimateParams = true;
-    static constexpr bool infer = false;
-    
-    boost::filesystem::path mapDirPath("../res/Maps/PUTMC_Lenovo_18_05_21_full");
-    
-    cv::Mat mapImage;
-    double mapScale;
-    vector<LocationWiFi> mapLocations = readMap(mapDirPath, mapImage, mapScale);
-    
-    vector<boost::filesystem::path> trajDirPaths{"../res/Trajectories/traj1",
-                                                 "../res/Trajectories/traj2",
-                                                 "../res/Trajectories/traj3"};
-    
-    vector<Pgm> pgms;
-    vector<vector<double>> obsVecs;
-    vector<vector<double>> varVals;
-    
-    for(int t = 0; t < trajDirPaths.size(); ++t) {
-    
-        vector<LocationWiFi> curTrajLocations;
-        vector<double> curStepDists;
-        readTrajectory(trajDirPaths[t], curTrajLocations, curStepDists);
-    
-        vector<vector<vector<double>>> curProbs;
-        for (int i = 0; i < curTrajLocations.size(); ++i) {
-            vector<vector<double>> curProb = locationProb(curTrajLocations[i], mapLocations);
+    try{
+        static constexpr bool estimateParams = false;
+        static constexpr bool infer = true;
         
-            curProbs.push_back(curProb);
-        }
-    
-        removeNotMatchedLocations(curTrajLocations,
-                                  curStepDists,
-                                  curProbs);
-    
-        vector<double> curObsVec;
-        map<int, int> curLocIdxToRandVarClusterId;
-        vector<double> curVarVals;
-        Pgm curPgm = buildPgm(curTrajLocations,
-                           curProbs,
-                           curStepDists,
-                           curObsVec,
-                           curLocIdxToRandVarClusterId,
-                           curVarVals);
-    
-        for (int i = 0; i < curTrajLocations.size(); ++i) {
-            visualizeMapProb(mapLocations, curProbs[i], curVarVals[i], mapImage, mapScale);
-        }
-    
-        if(infer) {
-            vector<LocationXY> infLoc = inferLocations(curProbs.size(),
-                                                       curPgm,
-                                                       curObsVec,
-                                                       curLocIdxToRandVarClusterId);
-    
-            for (int i = 0; i < infLoc.size(); ++i) {
-                curTrajLocations[i].locationXY = infLoc[i];
+        boost::filesystem::path mapDirPath("../res/Maps/PUTMC_Lenovo_18_05_21_full");
+        
+        cv::Mat mapImage;
+        cv::Mat mapObstacles;
+        double mapScale;
+        vector<LocationWiFi> mapLocations = readMap(mapDirPath, mapImage, mapObstacles, mapScale);
+        
+//        vector<boost::filesystem::path> trajDirPaths{"../res/Trajectories/traj1",
+//                                                     "../res/Trajectories/traj2",
+//                                                     "../res/Trajectories/traj3"};
+        
+        vector<boost::filesystem::path> trajDirPaths{"../res/Trajectories/traj4",
+                                                     "../res/Trajectories/traj5",
+                                                     "../res/Trajectories/traj6"};
+        
+        vector<Pgm> pgms;
+        vector<vector<double>> obsVecs;
+        vector<vector<double>> varVals;
+        
+        for(int t = 0; t < trajDirPaths.size(); ++t) {
+        
+            vector<LocationWiFi> curTrajLocations;
+            vector<double> curStepDists;
+            readTrajectory(trajDirPaths[t], curTrajLocations, curStepDists);
+        
+            vector<vector<vector<double>>> curProbs;
+            for (int i = 0; i < curTrajLocations.size(); ++i) {
+                vector<vector<double>> curProb = locationProb(curTrajLocations[i], mapLocations);
+            
+                curProbs.push_back(curProb);
             }
-    
-            visualizeMapInfer(mapLocations,
-                              curTrajLocations,
-                              mapImage,
-                              mapScale);
-        }
         
-        pgms.push_back(curPgm);
-        varVals.push_back(curVarVals);
-        obsVecs.push_back(curObsVec);
+            removeNotMatchedLocations(curTrajLocations,
+                                      curStepDists,
+                                      curProbs);
+        
+            vector<double> curObsVec;
+            map<int, int> curLocIdxToRandVarClusterId;
+            vector<double> curVarVals;
+            Pgm curPgm = buildPgm(curTrajLocations,
+                               mapObstacles,
+                               mapScale,
+                               curProbs,
+                               curStepDists,
+                               curObsVec,
+                               curLocIdxToRandVarClusterId,
+                               curVarVals);
+        
+            for (int i = 0; i < curTrajLocations.size(); ++i) {
+                visualizeMapProb(mapLocations,
+                                 curProbs[i],
+                                 curVarVals[i],
+                                 mapImage,
+                                 mapObstacles,
+                                 mapScale);
+            }
+        
+            if(infer) {
+                vector<LocationXY> infLoc = inferLocations(curProbs.size(),
+                                                           curPgm,
+                                                           curObsVec,
+                                                           curLocIdxToRandVarClusterId);
+        
+    //            for (int i = 0; i < infLoc.size(); ++i) {
+    //                curTrajLocations[i].locationXY = infLoc[i];
+    //            }
+        
+                visualizeMapInfer(mapLocations,
+                                  curTrajLocations,
+                                  infLoc,
+                                  mapImage,
+                                  mapScale);
+            }
+            
+            pgms.push_back(curPgm);
+            varVals.push_back(curVarVals);
+            obsVecs.push_back(curObsVec);
+        }
+        if(estimateParams){
+            cout << "estimating parameters" << endl;
+            ParamEst paramEst;
+            paramEst.estimateParams(pgms,
+                                     varVals,
+                                     obsVecs);
+        }
     }
-    if(estimateParams){
-        cout << "estimating parameters" << endl;
-        ParamEst paramEst;
-        paramEst.estimateParams(pgms,
-                                 varVals,
-                                 obsVecs);
+    catch(char const *str){
+        cout << "Catch const char* in main(): " << str << endl;
+        return -1;
+    }
+    catch(std::exception& e){
+        cout << "Catch std exception in main(): " << e.what() << endl;
+    }
+    catch(...){
+        cout << "Catch ... in main()" << endl;
+        return -1;
     }
 }
