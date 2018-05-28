@@ -384,8 +384,7 @@ std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
 //                    cout << "databaseLoc.locationXY = (" << databaseLoc.locationXY.x << ", " << databaseLoc.locationXY.y << ")" << endl;
                     double dx = mapCoord.x - databaseLoc.locationXY.x;
                     double dy = mapCoord.y - databaseLoc.locationXY.y;
-                    double expVal = -(dx * dx / (wifiSigma * wifiSigma) +
-                                      dy * dy / (wifiSigma * wifiSigma));
+                    double expVal = -((dx * dx + dy * dy) / (wifiSigma * wifiSigma));
                     expVal += -error.first / (errorSigma * errorSigma);
                     
 //                    cout << "expVal = " << expVal << endl;
@@ -762,8 +761,8 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         pgm.addEdgeToPgm(rvClusters[i], moveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i]});
     }
     
-//    pgm.params() = vector<double>{2.13323, 24.4968};
-    pgm.params() = vector<double>{1.0, 1.0};
+    pgm.params() = vector<double>{1.80407, 21.7148};
+//    pgm.params() = vector<double>{1.0, 1.0};
     
     return pgm;
 }
@@ -842,8 +841,12 @@ void removeNotMatchedLocations(std::vector<LocationWiFi> &wifiLocations,
 
 int main() {
     try{
+//        static constexpr bool estimateParams = true;
+//        static constexpr bool infer = false;
         static constexpr bool estimateParams = false;
         static constexpr bool infer = true;
+        
+        static constexpr int seqLen = 10;
         
         boost::filesystem::path mapDirPath("../res/Maps/PUTMC_Lenovo_18_05_21_full");
         
@@ -855,7 +858,6 @@ int main() {
 //        vector<boost::filesystem::path> trajDirPaths{"../res/Trajectories/traj1",
 //                                                     "../res/Trajectories/traj2",
 //                                                     "../res/Trajectories/traj3"};
-        
         vector<boost::filesystem::path> trajDirPaths{"../res/Trajectories/traj4",
                                                      "../res/Trajectories/traj5",
                                                      "../res/Trajectories/traj6"};
@@ -903,20 +905,46 @@ int main() {
             }
         
             if(infer) {
-                vector<LocationXY> infLoc = inferLocations(curProbs.size(),
-                                                           curPgm,
-                                                           curObsVec,
-                                                           curLocIdxToRandVarClusterId);
-        
-    //            for (int i = 0; i < infLoc.size(); ++i) {
-    //                curTrajLocations[i].locationXY = infLoc[i];
-    //            }
-        
-                visualizeMapInfer(mapLocations,
-                                  curTrajLocations,
-                                  infLoc,
-                                  mapImage,
-                                  mapScale);
+                vector<double> errors;
+                double errorSum = 0;
+                int errorCnt = 0;
+                
+                for (int i = seqLen; i < curTrajLocations.size(); ++i) {
+                    vector<double> iObsVec;
+                    map<int, int> iLocIdxToRandVarClusterId;
+                    vector<double> iVarVals;
+                    Pgm iPgm = buildPgm(vector<LocationWiFi>(curTrajLocations.begin() + i - seqLen, curTrajLocations.begin() + i),
+                                          mapObstacles,
+                                          mapScale,
+                                          vector<vector<vector<double>>>(curProbs.begin() + i - seqLen, curProbs.begin() + i),
+                                          vector<double>(curStepDists.begin() + i - seqLen, curStepDists.begin() + i),
+                                          iObsVec,
+                                          iLocIdxToRandVarClusterId,
+                                          iVarVals);
+                    
+                    vector<LocationXY> infLoc = inferLocations(seqLen,
+                                                               iPgm,
+                                                               iObsVec,
+                                                               iLocIdxToRandVarClusterId);
+    
+                    double dx = infLoc.back().x - curTrajLocations[i - 1].locationXY.x;
+                    double dy = infLoc.back().y - curTrajLocations[i - 1].locationXY.y;
+                    double curError = sqrt(dx*dx + dy*dy);
+                    errorSum += curError;
+                    errors.push_back(curError);
+                    ++errorCnt;
+                    
+                    cout << "curError = " << curError << endl;
+    
+                    visualizeMapInfer(mapLocations,
+                                      vector<LocationWiFi>(curTrajLocations.begin() + i - seqLen, curTrajLocations.begin() + i),
+                                      infLoc,
+                                      mapImage,
+                                      mapScale);
+                }
+                if(errorCnt > 0) {
+                    cout << "mean error = " << errorSum / errorCnt << endl;
+                }
             }
             
             pgms.push_back(curPgm);

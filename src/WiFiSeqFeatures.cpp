@@ -22,10 +22,10 @@ double LocFeature::comp(const std::vector<double> &vals, const std::vector<doubl
     int loc = (int)round(vals[0]);
     
     double ret = log(obsVec[loc]);
-    ret = std::max(ret, -100.0);
-    if(std::isnan(ret) || std::isinf(ret)){
-        ret = 0;
-    }
+//    ret = std::max(ret, -100.0);
+//    if(std::isnan(ret) || std::isinf(ret)){
+//        ret = 0;
+//    }
     return ret;
 }
 
@@ -67,11 +67,13 @@ double MoveFeature::comp(const std::vector<double> &vals, const std::vector<doub
     
     double distDiff = dist - distStep;
     
-    double ret = -(distDiff*distDiff / (sigmaDist*sigmaDist));
-    ret = std::max(ret, -10.0);
-    if(std::isnan(ret) || std::isinf(ret)){
-        ret = 0;
-    }
+//    double ret = exp(-distDiff*distDiff / (sigmaDist*sigmaDist));
+    double ret = -distDiff*distDiff / (sigmaDist*sigmaDist);
+    
+//    ret = std::max(ret, -15.0);
+//    if(std::isnan(ret) || std::isinf(ret)){
+//        ret = 0;
+//    }
     return ret;
 }
 
