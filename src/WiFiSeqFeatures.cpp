@@ -70,7 +70,7 @@ double MoveFeature::comp(const std::vector<double> &vals, const std::vector<doub
 //    double ret = exp(-distDiff*distDiff / (sigmaDist*sigmaDist));
     double ret = -distDiff*distDiff / (sigmaDist*sigmaDist);
     
-//    ret = std::max(ret, -15.0);
+//    ret = std::max(ret, -20.0);
 //    if(std::isnan(ret) || std::isinf(ret)){
 //        ret = 0;
 //    }
