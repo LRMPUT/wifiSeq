@@ -549,7 +549,7 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
     
     cv::imshow("map", vis);
     
-    cv::waitKey();
+    cv::waitKey(10);
 }
 
 void visualizeMapInfer(const std::vector<LocationWiFi> &database,
@@ -911,7 +911,7 @@ vector<LocationXY> inferLocations(int nloc,
                                             params,
                                             obsVec);
     
-    cout << "calibrated = " << calibrated << endl;
+//    cout << "calibrated = " << calibrated << endl;
     
     vector<vector<double>> retVals = Inference::decodeMAP(pgm,
                                                          marg,
@@ -998,6 +998,9 @@ int main() {
     
         ofstream errorsFile("../log/errors");
         ofstream errorsAllFile("../log/errors_all");
+    
+        chrono::nanoseconds infDur(0);
+        int infTimeCnt = 0;
         
         for(int t = 0; t < trajDirPaths.size(); ++t) {
         
@@ -1052,6 +1055,8 @@ int main() {
                     int errorCntComp = 0;
 
                     for (int i = seqLen - 1; i < curTrajLocations.size(); ++i) {
+                        
+                        chrono::steady_clock::time_point startTime = chrono::steady_clock::now();
                         vector<double> iObsVec;
                         map<int, int> iLocIdxToRandVarClusterId;
                         vector<double> iVarVals;
@@ -1073,6 +1078,10 @@ int main() {
                                                                    iPgm,
                                                                    iObsVec,
                                                                    iLocIdxToRandVarClusterId);
+                        
+                        chrono::steady_clock::time_point endTime = chrono::steady_clock::now();
+                        infDur += endTime - startTime;
+                        ++infTimeCnt;
                         
                         infLocAll.push_back(infLoc.back());
                         {
@@ -1218,6 +1227,9 @@ int main() {
             varVals.push_back(curVarVals);
             obsVecs.push_back(curObsVec);
         }
+        
+        cout << "mean inference time: " << (double)infDur.count() / infTimeCnt / 1e6 << " ms" << endl;
+        
         if(estimateParams){
             cout << "estimating parameters" << endl;
             ParamEst paramEst;

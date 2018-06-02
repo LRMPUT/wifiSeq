@@ -362,7 +362,7 @@ bool Inference::runBP(const std::vector<std::shared_ptr<Cluster>>& clusters,
 		prevMsgs.push_back(clustMsg);
 	}
 
-	static const int maxIter = 40;
+	static const int maxIter = 1;
 	static const double maxEps = 1e-5;
 	int iter = 0;
 
@@ -636,9 +636,9 @@ bool Inference::compMarginalsParam(const Pgm& pgm,
 			double Hs = 0.0;
 			for(int val = 0; val < (int)pgm.constClusters()[c]->randVars().front()->vals().size(); ++val){
 				Hs += marg[c][val] * log(marg[c][val]);
-				if(std::isnan(log(marg[c][val]))){
-				    cout << "marg[" << c << "] = " << marg[c] << endl;
-				}
+//				if(std::isnan(log(marg[c][val]))){
+//				    cout << "marg[" << c << "] = " << marg[c] << endl;
+//				}
 			}
 			//Every nh cluster represents factor
 			int deg = pgm.constClusters()[c]->nh().size();
@@ -743,7 +743,7 @@ std::vector<std::vector<double> > Inference::decodeMAP(const Pgm& pgm,
 		numComb *= testValsIdxs[c].size();
 	}
 //	testValsIdxsFile.close();
-	cout << "numComb = " << numComb << endl;
+//	cout << "numComb = " << numComb << endl;
 
 	//resolve ties
 	double bestScore = 0;
@@ -751,7 +751,7 @@ std::vector<std::vector<double> > Inference::decodeMAP(const Pgm& pgm,
 	vector<int> bestVarValIdxs(numClusters, 0);
 	vector<int> testVarValIdxs(numClusters, 0);
 
-	cout << "Resolving ties" << endl;
+//	cout << "Resolving ties" << endl;
 	int counter = 0;
 	do{
 //		cout << "combination " << counter++ << endl;
