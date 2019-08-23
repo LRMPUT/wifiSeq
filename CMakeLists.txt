@@ -10,6 +10,10 @@ include_directories(include)
 # Boost
 find_package(Boost COMPONENTS system filesystem serialization)
 
+# Eigen
+find_package(Eigen3 REQUIRED)
+include_directories(${EIGEN3_INCLUDE_DIR})
+
 # OpenCV
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS} )
@@ -22,6 +26,7 @@ set(LBFGS_LIBRARIES lbfgs)
 
 set(wifiSeq_SRC
         src/main.cpp
+        src/Utils.cpp
         src/LocationWiFi.cpp
         src/WiFiSeqFeatures.cpp
         src/Stepometer.cpp
