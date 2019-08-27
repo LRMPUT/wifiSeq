@@ -3,6 +3,7 @@
 //
 
 #include <cmath>
+#include <algorithm>
 
 #include "Utils.hpp"
 
@@ -16,5 +17,17 @@ double Utils::toPiRange(double o) {
     }
     else {
         return o;
+    }
+}
+
+double Utils::angDiff(double o1, double o2) {
+    if(std::abs(o1 - o2) <= M_PI ){
+        return o1 - o2;
+    }
+    else if(o1 - o2 < - M_PI){
+        return o1 - o2 + M_PI;
+    }
+    else {
+        return o1 - o2 - M_PI;
     }
 }

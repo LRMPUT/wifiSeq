@@ -26,6 +26,26 @@ private:
 };
 
 
+class OrientFeature : public Feature
+{
+public:
+    OrientFeature(int iid,
+                  int iparamNum,
+                  const std::vector<std::shared_ptr<RandVar>> &irandVarsOrdered,
+                  const std::vector<int> &iobsNums,
+                  double isigmaOrient);
+
+    double comp(const std::vector<double> &vals, const std::vector<double> &obsVec) override;
+
+    double compParam(const std::vector<double> &vals,
+                     const std::vector<double> &params,
+                     const std::vector<double> &obsVec) override;
+
+private:
+    double sigmaOrient;
+};
+
+
 class MoveFeature : public Feature
 {
 public:
@@ -47,15 +67,15 @@ private:
     double sigmaDist;
 };
 
-class OrientFeature : public Feature
+class OrientDiffFeature : public Feature
 {
 public:
-    OrientFeature(int iid,
-                int iparamNum,
-                const std::vector<std::shared_ptr<RandVar>> &irandVarsOrdered,
-                const std::vector<int> &iobsNums,
-                int imapSize,
-                double isigmaOrient);
+    OrientDiffFeature(int iid,
+                      int iparamNum,
+                      const std::vector<std::shared_ptr<RandVar>> &irandVarsOrdered,
+                      const std::vector<int> &iobsNums,
+                      int imapSize,
+                      double isigmaOrient);
 
     double comp(const std::vector<double> &vals, const std::vector<double> &obsVec) override;
 

@@ -22,45 +22,6 @@
 
 using namespace std;
 
-static constexpr int ssThreshold = -100;
-static constexpr double sharedPercentThreshold = 0.6;
-
-// in meters
-static constexpr double mapGrid = 1.0;
-static constexpr double mapMinX = 0.0;
-static constexpr double mapMaxX = 130.0;
-static constexpr double mapMinY = 0.0;
-static constexpr double mapMaxY = 40.0;
-// each sector is 45 deg
-static constexpr int orientSectors = 8;
-static constexpr double orientSectorLen = 2 * M_PI / orientSectors;
-
-static constexpr int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
-static constexpr int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
-
-static constexpr double wifiSigma = 8.0;
-static constexpr double errorSigma = 2;
-static constexpr double distSigma = 2.0;
-
-// parameter estimation
-//static constexpr double probThresh = 0.075;
-
-static constexpr double probThresh = 0.015;
-// inference
-//static constexpr double probThresh = 0.1;
-
-static constexpr double probRatio = 2.0;
-
-// prob by wknn
-static constexpr double probScale = 1.0;
-// prob by MoG
-//static constexpr double probScale = 1.0/5.0;
-
-static constexpr double probVisScale = 4;
-
-
-static constexpr int wknnk = 6;
-
 
 void selectPolygonPixels(const std::vector<cv::Point2i> &polygon,
                          int regionId,
@@ -225,13 +186,13 @@ std::vector<LocationWiFi> readMap(const boost::filesystem::path &dirPath,
 void readTrajectory(const boost::filesystem::path &dirPath,
                     std::vector<LocationWiFi> &wifiLocations,
                     std::vector<double> &stepDists,
-                    std::vector<double> &orientDiff)
+                    std::vector<double> &orient)
 {
     cout << "Reading trajectory" << endl;
     
     ifstream wifiFile((dirPath / "wifi.map").c_str());
     if(!wifiFile.is_open()){
-        cout << "Error! Could not open " << (dirPath / "wifi.raw").c_str() << " file" << endl;
+        cout << "Error! Could not open " << (dirPath / "wifi.map").c_str() << " file" << endl;
     }
     while(!wifiFile.eof() && !wifiFile.fail()){
         LocationWiFi curLoc;
@@ -288,7 +249,7 @@ void readTrajectory(const boost::filesystem::path &dirPath,
     
     ifstream accFile((dirPath / "acc.map").c_str());
     if(!accFile.is_open()){
-        cout << "Error! Could not open " << (dirPath / "acc.raw").c_str() << " file" << endl;
+        cout << "Error! Could not open " << (dirPath / "acc.map").c_str() << " file" << endl;
     }
     vector<double> accSamp;
     vector<uint64_t> accSampTs;
@@ -338,7 +299,7 @@ void readTrajectory(const boost::filesystem::path &dirPath,
         }
     }
 
-    orientDiff.clear();
+    orient.clear();
 
     ifstream orientFile((dirPath / "orient.map").c_str());
     if(!orientFile.is_open()){
@@ -373,7 +334,8 @@ void readTrajectory(const boost::filesystem::path &dirPath,
                 ++curOrientSampIdx;
             }
             double curOrient = orientSamp[curOrientSampIdx];
-            orientDiff.push_back(Utils::toPiRange(curOrient - prevOrient));
+//            orient.push_back(Utils::toPiRange(curOrient - prevOrient));
+            orient.push_back(curOrient);
 
             prevOrient = curOrient;
         }
@@ -426,6 +388,17 @@ int orientToOrientIdx(double o){
 
 int mapGridToVal(int x, int y, int o){
     return o + orientSectors * x + orientSectors * mapGridSizeX * y;
+}
+
+void valToMapGrid(double val, int &xIdx, int &yIdx, int &oIdx){
+    int valInt = (int)round(val);
+    oIdx = valInt % orientSectors;
+    valInt /= orientSectors;
+
+    xIdx = valInt % mapGridSizeX;
+    valInt /= mapGridSizeX;
+
+    yIdx = valInt;
 }
 
 LocationXY wknn(const std::vector<LocationWiFi> &database,
@@ -614,7 +587,7 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
     
     cv::imshow("map", vis);
     
-    cv::waitKey();
+    cv::waitKey(100);
 }
 
 void visualizeMapInfer(const std::vector<LocationWiFi> &database,
@@ -740,7 +713,6 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
     set<int> forbiddenVals;
     {
 //        cout << "obstacles.size() = " << obstacles.size() << endl;
-        int val = 0;
         for (int mapYIdx = 0; mapYIdx < probs[0].size(); ++mapYIdx) {
             for (int mapXIdx = 0; mapXIdx < probs[0][mapYIdx].size(); ++mapXIdx) {
                 LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
@@ -767,10 +739,11 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
 //                cout << "obstacleCnt = " << obstacleCnt << endl;
 //                cout << "curObstacle.rows * curObstacle.cols / 2 = " << curObstacle.rows * curObstacle.cols / 2 << endl;
                 if(obstacleCnt > curObstacle.rows * curObstacle.cols / 2){
-                    forbiddenVals.insert(val);
+                    for(int oIdx = 0; oIdx < orientSectors; ++oIdx) {
+                        int val = mapGridToVal(mapXIdx, mapYIdx, oIdx);
+                        forbiddenVals.insert(val);
+                    }
                 }
-                
-                ++val;
             }
         }
 //        cout << "forbiddenVals.size() = " << forbiddenVals.size() << endl;
@@ -813,14 +786,23 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         obsVec.push_back(stepDists[i]);
     }
 
-    int obsVecStartOrient = obsVec.size();
+    int obsVecStartOrientMeas = obsVec.size();
     for(int i = 0; i < probs.size(); ++i){
         obsVec.push_back(orientMeas[i]);
     }
 
+    int obsVecStartOrient = obsVec.size();
+    for(int oIdx = 0; oIdx < orientSectors; ++oIdx) {
+        double curOrient = orientIdxToOrient(oIdx);
+        obsVec.push_back(curOrient);
+    }
+
+
+    double orientOffsetSin = 0;
+    double orientOffsetCos = 0;
     // random variables
     int nextRandVarId = 0;
-    // last position is assigned the same orientation as the previous position
+    // last position has the same orientation assigned as the previous position
     int prevLocO = 0;
     for(int i = 0; i < probs.size(); ++i){
         locIdxToVarClusterId[i] = nextRandVarId;
@@ -845,6 +827,11 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
 
             prevLocO = locO;
         }
+
+        double curOrientOffset = Utils::angDiff(orientMeas[i], locO);
+        orientOffsetSin += sin(curOrientOffset);
+        orientOffsetCos += cos(curOrientOffset);
+
         double varVal = mapGridToVal(locX, locY, locO);
         double closestDist = std::numeric_limits<double>::max();
         int closestX = locX;
@@ -855,11 +842,12 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         for (int mapYIdx = 0; mapYIdx < probs[i].size(); ++mapYIdx) {
             for (int mapXIdx = 0; mapXIdx < probs[i][mapYIdx].size(); ++mapXIdx) {
                 // check any orientation
-                int val = mapGridToVal(mapXIdx, mapYIdx, 0);
+                int valCheck = mapGridToVal(mapXIdx, mapYIdx, 0);
 
-                bool validLoc = (probs[i][mapYIdx][mapXIdx] >= curProbThresh) && (forbiddenVals.count(val) == 0);
+                bool validLoc = (probs[i][mapYIdx][mapXIdx] >= curProbThresh) && (forbiddenVals.count(valCheck) == 0);
                 for(int oIdx = 0; oIdx < orientSectors; ++oIdx) {
                     if (validLoc){
+                        int val = mapGridToVal(mapXIdx, mapYIdx, oIdx);
                         rvVals.push_back(val);
                     }
                 }
@@ -888,7 +876,31 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         
         randVars.push_back(curRandVar);
     }
-    
+
+    // orient offset variable
+    {
+        // mean using sin and cos
+        orientOffsetSin /= probs.size();
+        orientOffsetCos /= probs.size();
+        double orientOffset = 0;
+        // if not spread uniformly on the circle
+        if(orientOffsetSin*orientOffsetSin + orientOffsetCos*orientOffsetCos > 0.01) {
+            orientOffset = atan2(orientOffsetSin, orientOffsetCos);
+        }
+
+        vector<double> rvVals;
+        for(int oIdx = 0; oIdx < orientSectors; ++oIdx) {
+            rvVals.push_back(oIdx);
+        }
+
+        double curVarVal = orientToOrientIdx(orientOffset);
+        varVals.push_back(curVarVal);
+
+        shared_ptr<RandVar> curRandVar(new RandVar(nextRandVarId++, rvVals));
+        randVars.push_back(curRandVar);
+    }
+
+
     // features
     int nextFeatId = 0;
     int nextParamId = 0;
@@ -907,7 +919,31 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         feats.push_back(curFeat);
     }
     ++nextParamId;
-    
+
+    // orient features
+    vector<shared_ptr<Feature>> orientFeats;
+    for(int i = 0; i < probs.size(); ++i){
+        vector<int> curObsVecIdxs(1 + orientSectors + mapSize);
+        // orientation measurement
+        curObsVecIdxs[0] = obsVecStartOrientMeas + i;
+        // orientation for each orient index
+        iota(curObsVecIdxs.begin() + 1, curObsVecIdxs.begin() + 1 + orientSectors, obsVecStartOrient);
+        // orientations for each location
+        iota(curObsVecIdxs.begin() + 1 + orientSectors,
+             curObsVecIdxs.begin() + 1 + orientSectors + mapSize,
+             obsVecStartLoc + 2 * mapSize);
+
+        shared_ptr<Feature> curFeat(new OrientFeature(nextFeatId++,
+                                                      nextParamId,
+                                                      vector<shared_ptr<RandVar>>{randVars.back(), randVars[i]},
+                                                      curObsVecIdxs,
+                                                      orientSigma));
+
+        orientFeats.push_back(curFeat);
+        feats.push_back(curFeat);
+    }
+    ++nextParamId;
+
     // move features
     vector<shared_ptr<Feature>> moveFeats;
     // skip first one, as there is no distance from previous location
@@ -931,28 +967,28 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
     }
     ++nextParamId;
 
-    // orient features
-    vector<shared_ptr<Feature>> orientFeats;
-    // skip first one, as there is no orientation difference from previous location
-    for(int i = 1; i < probs.size(); ++i){
-        vector<int> curObsVecIdxs(1 + 2*mapSize);
-        curObsVecIdxs[0] = obsVecStartDist + i;
-        // x coordinates
-        iota(curObsVecIdxs.begin() + 1, curObsVecIdxs.begin() + 1 + mapSize, obsVecStartLoc);
-        // y coordinates
-        iota(curObsVecIdxs.begin() + 1 + mapSize, curObsVecIdxs.begin() + 1 + 2*mapSize, obsVecStartLoc + mapSize);
-
-        shared_ptr<Feature> curFeat(new MoveFeature(nextFeatId++,
-                                                    nextParamId,
-                                                    vector<shared_ptr<RandVar>>{randVars[i-1], randVars[i]},
-                                                    curObsVecIdxs,
-                                                    mapSize,
-                                                    distSigma));
-
-        moveFeats.push_back(curFeat);
-        feats.push_back(curFeat);
-    }
-    ++nextParamId;
+//    // orient features
+//    vector<shared_ptr<Feature>> orientFeats;
+//    // skip first one, as there is no orientation difference from previous location
+//    for(int i = 1; i < probs.size(); ++i){
+//        vector<int> curObsVecIdxs(1 + 2*mapSize);
+//        curObsVecIdxs[0] = obsVecStartDist + i;
+//        // x coordinates
+//        iota(curObsVecIdxs.begin() + 1, curObsVecIdxs.begin() + 1 + mapSize, obsVecStartLoc);
+//        // y coordinates
+//        iota(curObsVecIdxs.begin() + 1 + mapSize, curObsVecIdxs.begin() + 1 + 2*mapSize, obsVecStartLoc + mapSize);
+//
+//        shared_ptr<Feature> curFeat(new MoveFeature(nextFeatId++,
+//                                                    nextParamId,
+//                                                    vector<shared_ptr<RandVar>>{randVars[i-1], randVars[i]},
+//                                                    curObsVecIdxs,
+//                                                    mapSize,
+//                                                    distSigma));
+//
+//        moveFeats.push_back(curFeat);
+//        feats.push_back(curFeat);
+//    }
+//    ++nextParamId;
     
     //clusters
     int nextClusterId = 0;
@@ -965,6 +1001,15 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         rvClusters.push_back(curCluster);
         clusters.push_back(curCluster);
     }
+    // offset random variable cluster
+    {
+        shared_ptr<Cluster> curCluster(new Cluster(nextClusterId++,
+                                                   vector<shared_ptr<Feature>>{},
+                                                   vector<shared_ptr<RandVar>>{randVars.back()}));
+
+        rvClusters.push_back(curCluster);
+        clusters.push_back(curCluster);
+    }
     
     vector<shared_ptr<Cluster>> locFeatClusters;
     for(int i = 0; i < probs.size(); ++i){
@@ -973,6 +1018,16 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
                                                    vector<shared_ptr<RandVar>>{randVars[i]}));
     
         locFeatClusters.push_back(curCluster);
+        clusters.push_back(curCluster);
+    }
+
+    vector<shared_ptr<Cluster>> orientFeatClusters;
+    for(int i = 0; i < probs.size(); ++i){
+        shared_ptr<Cluster> curCluster(new Cluster(nextClusterId++,
+                                                   vector<shared_ptr<Feature>>{orientFeats[i]},
+                                                   vector<shared_ptr<RandVar>>{randVars[i], randVars.back()}));
+
+        orientFeatClusters.push_back(curCluster);
         clusters.push_back(curCluster);
     }
     
@@ -993,6 +1048,12 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
     for(int i = 0; i < probs.size(); ++i){
         pgm.addEdgeToPgm(rvClusters[i], locFeatClusters[i], vector<shared_ptr<RandVar>>{randVars[i]});
     }
+
+    // edges from random variable clusters to orientation feature clusters and orientation offset random variable cluster
+    for(int i = 0; i < probs.size(); ++i){
+        pgm.addEdgeToPgm(rvClusters[i], orientFeatClusters[i], vector<shared_ptr<RandVar>>{randVars[i]});
+        pgm.addEdgeToPgm(rvClusters.back(), orientFeatClusters[i], vector<shared_ptr<RandVar>>{randVars.back()});
+    }
     
     for(int i = 1; i < probs.size(); ++i){
         pgm.addEdgeToPgm(rvClusters[i - 1], moveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i - 1]});
@@ -1005,7 +1066,7 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
 //    pgm.params() = vector<double>{1.64752, 21.8728};
 //    pgm.params() = vector<double>{1.0, 1.0};
     
-    pgm.params() = vector<double>{1.39533, 4.95359};
+    pgm.params() = vector<double>{1.39533, 4.95359, 1.0};
     
     return pgm;
 }
@@ -1041,8 +1102,8 @@ vector<LocationXY> inferLocations(int nloc,
         
         int curLoc = curVals.front();
         
-        int mapXIdx = curLoc % mapGridSizeX;
-        int mapYIdx = curLoc / mapGridSizeX;
+        int mapXIdx, mapYIdx, oIdx;
+        valToMapGrid(curLoc, mapXIdx, mapYIdx, oIdx);
         
         LocationXY curLocXY = mapGridToCoord(mapXIdx, mapYIdx);
         
@@ -1054,6 +1115,7 @@ vector<LocationXY> inferLocations(int nloc,
 
 void removeNotMatchedLocations(std::vector<LocationWiFi> &wifiLocations,
                                std::vector<double> &stepDists,
+                               std::vector<double> &orients,
                                std::vector<std::vector<std::vector<double>>> &probs)
 {
     for(int i = 0; i < probs.size(); ++i){
@@ -1075,6 +1137,7 @@ void removeNotMatchedLocations(std::vector<LocationWiFi> &wifiLocations,
             
             wifiLocations.erase(wifiLocations.begin() + i);
             stepDists.erase(stepDists.begin() + i);
+            orients.erase(orients.begin() + i);
             probs.erase(probs.begin() + i);
             
             --i;
@@ -1093,7 +1156,8 @@ int main() {
         
         static constexpr int seqLen = 10;
         
-        boost::filesystem::path mapDirPath("../res/Maps/PUTMC_Lenovo_18_05_21_full");
+//        boost::filesystem::path mapDirPath("../res/Maps/PUTMC_Lenovo_18_05_21_full");
+        boost::filesystem::path mapDirPath("../res/IGL/PUTMC_Floor3_Xperia_map");
         
         cv::Mat mapImage;
         cv::Mat mapObstacles;
@@ -1103,9 +1167,12 @@ int main() {
 //        vector<boost::filesystem::path> trajDirPaths{"../res/Trajectories/traj1",
 //                                                     "../res/Trajectories/traj2",
 //                                                     "../res/Trajectories/traj3"};
-        vector<boost::filesystem::path> trajDirPaths{"../res/Trajectories/traj4",
-                                                     "../res/Trajectories/traj5",
-                                                     "../res/Trajectories/traj6"};
+//        vector<boost::filesystem::path> trajDirPaths{"../res/Trajectories/traj4",
+//                                                     "../res/Trajectories/traj5",
+//                                                     "../res/Trajectories/traj6"};
+        vector<boost::filesystem::path> trajDirPaths{"../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj1",
+                                                     "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj2",
+                                                     "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj3"};
         
         vector<Pgm> pgms;
         vector<vector<double>> obsVecs;
@@ -1134,6 +1201,7 @@ int main() {
         
             removeNotMatchedLocations(curTrajLocations,
                                       curStepDists,
+                                      curOrients,
                                       curProbs);
         
             vector<double> curObsVec;
@@ -1144,6 +1212,7 @@ int main() {
                                mapScale,
                                curProbs,
                                curStepDists,
+                               curOrients,
                                curObsVec,
                                curLocIdxToRandVarClusterId,
                                curVarVals);
@@ -1187,6 +1256,8 @@ int main() {
                                                     curProbs.begin() + i + 1),
                                             vector<double>(curStepDists.begin() + i - seqLen + 1,
                                                            curStepDists.begin() + i + 1),
+                                            vector<double>(curOrients.begin() + i - seqLen + 1,
+                                                           curOrients.begin() + i + 1),
                                             iObsVec,
                                             iLocIdxToRandVarClusterId,
                                             iVarVals);

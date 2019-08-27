@@ -24,6 +24,8 @@ LocFeature::LocFeature(int iid,
 
 double LocFeature::comp(const std::vector<double> &vals, const std::vector<double> &obsVec) {
     int loc = (int)round(vals[0]);
+    // probabilities are the same for all orientations
+    loc /= orientSectors;
     
     double ret = log(obsVec[loc]);
 //    ret = std::max(ret, -100.0);
@@ -39,6 +41,54 @@ double LocFeature::compParam(const std::vector<double> &vals,
 {
     return params[paramNum()]*comp(vals, obsVec);
 }
+
+
+OrientFeature::OrientFeature(int iid,
+                                     int iparamNum,
+                                     const std::vector<std::shared_ptr<RandVar>> &irandVarsOrdered,
+                                     const std::vector<int> &iobsNums,
+                                     double isigmaOrient)
+        : Feature(iid,
+                  iparamNum,
+                  irandVarsOrdered,
+                  iobsNums),
+          sigmaOrient(isigmaOrient)
+{
+
+}
+
+double OrientFeature::comp(const std::vector<double> &vals, const std::vector<double> &obsVec) {
+    int oOffsetIdx = (int)round(vals[0]);
+    int loc = (int)round(vals[1]);
+
+    double orientMeas = obsVec[0];
+
+    double oOffset = obsVec[1 + oOffsetIdx];
+    double orient = obsVec[1 + orientSectors + loc];
+
+    double orientAbs = Utils::toPiRange(orient + oOffset);
+
+    double error = Utils::angDiff(orientMeas, orientAbs);
+
+//    double ret = exp(-error*error / (sigmaDist*sigmaDist));
+    double ret = -error * error / (sigmaOrient * sigmaOrient);
+
+//    ret = std::max(ret, -20.0);
+//    if(std::isnan(ret) || std::isinf(ret)){
+//        ret = 0;
+//    }
+    return ret;
+}
+
+double OrientFeature::compParam(const std::vector<double> &vals,
+                                    const std::vector<double> &params,
+                                    const std::vector<double> &obsVec)
+{
+    return params[paramNum()]*comp(vals, obsVec);
+}
+
+
+
 
 MoveFeature::MoveFeature(int iid,
                          int iparamNum,
@@ -90,12 +140,12 @@ double MoveFeature::compParam(const std::vector<double> &vals,
 
 
 
-OrientFeature::OrientFeature(int iid,
-                         int iparamNum,
-                         const std::vector<std::shared_ptr<RandVar>> &irandVarsOrdered,
-                         const std::vector<int> &iobsNums,
-                         int imapSize,
-                         double isigmaOrient)
+OrientDiffFeature::OrientDiffFeature(int iid,
+                                     int iparamNum,
+                                     const std::vector<std::shared_ptr<RandVar>> &irandVarsOrdered,
+                                     const std::vector<int> &iobsNums,
+                                     int imapSize,
+                                     double isigmaOrient)
         : Feature(iid,
                   iparamNum,
                   irandVarsOrdered,
@@ -106,7 +156,7 @@ OrientFeature::OrientFeature(int iid,
 
 }
 
-double OrientFeature::comp(const std::vector<double> &vals, const std::vector<double> &obsVec) {
+double OrientDiffFeature::comp(const std::vector<double> &vals, const std::vector<double> &obsVec) {
     int loc1 = (int)round(vals[0]);
     int loc2 = (int)round(vals[1]);
 
@@ -117,8 +167,7 @@ double OrientFeature::comp(const std::vector<double> &vals, const std::vector<do
 
     double orientDiff = Utils::toPiRange(o2 - o1);
 
-    // TODO Consider difference in reverse direction
-    double error = orientDiff - orientDiffMeas;
+    double error = Utils::angDiff(orientDiff, orientDiffMeas);
 
 //    double ret = exp(-error*error / (sigmaDist*sigmaDist));
     double ret = -error * error / (sigmaOrient * sigmaOrient);
@@ -130,9 +179,9 @@ double OrientFeature::comp(const std::vector<double> &vals, const std::vector<do
     return ret;
 }
 
-double OrientFeature::compParam(const std::vector<double> &vals,
-                              const std::vector<double> &params,
-                              const std::vector<double> &obsVec)
+double OrientDiffFeature::compParam(const std::vector<double> &vals,
+                                    const std::vector<double> &params,
+                                    const std::vector<double> &obsVec)
 {
     return params[paramNum()]*comp(vals, obsVec);
 }
