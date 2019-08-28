@@ -31,3 +31,24 @@ double Utils::angDiff(double o1, double o2) {
         return o1 - o2 - 2 * M_PI;
     }
 }
+
+double Utils::meanOrient(const std::vector<double> &orients) {
+    double orientOffsetSin = 0;
+    double orientOffsetCos = 0;
+    for(int i = 0; i < orients.size(); ++i){
+        orientOffsetSin += sin(orients[i]);
+        orientOffsetCos += cos(orients[i]);
+    }
+    // mean using sin and cos
+    orientOffsetSin /= orients.size();
+    orientOffsetCos /= orients.size();
+
+    // if not spread uniformly on the circle
+    if(orientOffsetSin*orientOffsetSin + orientOffsetCos*orientOffsetCos > 0.01) {
+        return atan2(orientOffsetSin, orientOffsetCos);
+    }
+    // return middle value
+    else {
+        return orients[orients.size() / 2];
+    }
+}

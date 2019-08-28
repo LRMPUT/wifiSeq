@@ -28,7 +28,7 @@ double LocFeature::comp(const std::vector<double> &vals, const std::vector<doubl
     loc /= orientSectors;
     
     double ret = log(obsVec[loc]);
-//    ret = std::max(ret, -100.0);
+    ret = std::max(ret, -20.0);
 //    if(std::isnan(ret) || std::isinf(ret)){
 //        ret = 0;
 //    }
@@ -68,7 +68,7 @@ double OrientFeature::comp(const std::vector<double> &vals, const std::vector<do
 //    double ret = exp(-error*error / (sigmaDist*sigmaDist));
     double ret = -error * error / (sigmaOrient * sigmaOrient);
 
-//    ret = std::max(ret, -20.0);
+    ret = std::max(ret, -20.0);
 //    if(std::isnan(ret) || std::isinf(ret)){
 //        ret = 0;
 //    }
@@ -124,7 +124,7 @@ double MoveFeature::comp(const std::vector<double> &vals, const std::vector<doub
 //    double ret = exp(-error*error / (sigmaDist*sigmaDist));
     double ret = -error * error / (sigmaDist * sigmaDist);
     
-//    ret = std::max(ret, -20.0);
+    ret = std::max(ret, -20.0);
 //    if(std::isnan(ret) || std::isinf(ret)){
 //        ret = 0;
 //    }

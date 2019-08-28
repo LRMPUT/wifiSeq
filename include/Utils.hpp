@@ -5,6 +5,7 @@
 #ifndef WIFISEQ_UTILS_HPP
 #define WIFISEQ_UTILS_HPP
 
+#include <vector>
 
 static constexpr int ssThreshold = -100;
 static constexpr double sharedPercentThreshold = 0.6;
@@ -52,6 +53,8 @@ public:
     static double toPiRange(double o);
 
     static double angDiff(double o1, double o2);
+
+    static double meanOrient(const std::vector<double> &orients);
 };
 
 

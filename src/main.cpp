@@ -369,28 +369,37 @@ void readTrajectory(const boost::filesystem::path &dirPath,
         double qx, qy, qz, qw, accuracy;
         orientFile >> timestamp >> qx >> qy >> qz >> qw >> accuracy;
         if(!orientFile.fail()){
-            Eigen::Quaterniond q(qw, qx, qy, qz);
-            Eigen::Matrix3d rotationMatrix = q.toRotationMatrix();
+            if(accuracy < 0.3) {
+                Eigen::Quaterniond q(qw, qx, qy, qz);
+                Eigen::Matrix3d rotationMatrix = q.toRotationMatrix();
 
-            // Getting the yaw angle from full orientation
-            double heading = M_PI_2 - atan2(-rotationMatrix(1,2), rotationMatrix(0,2));
+                // Getting the yaw angle from full orientation
+                double heading = -atan2(rotationMatrix(1, 0), rotationMatrix(0, 0));
+//            double heading = M_PI_2 - atan2(-rotationMatrix(1,2), rotationMatrix(0,2));
 
-            orientSamp.push_back(heading);
-            orientSampTs.push_back(timestamp);
+                orientSamp.push_back(heading);
+                orientSampTs.push_back(timestamp);
+            }
         }
     }
 
     {
+        static constexpr int winLen = 20;
+
         int curOrientSampIdx = 0;
         double prevOrient = 0;
-
         for(int s = 0; s < wifiLocations.size(); ++s) {
             uint64_t curScanTs = wifiLocations[s].timestamp;
 
-            while (curOrientSampIdx < orientSamp.size() && accSampTs[curOrientSampIdx] < curScanTs) {
+            while (curOrientSampIdx < orientSamp.size() && orientSampTs[curOrientSampIdx] < curScanTs) {
                 ++curOrientSampIdx;
             }
-            double curOrient = orientSamp[curOrientSampIdx];
+            int startSamp = std::max(0, curOrientSampIdx - winLen/2);
+            int endSamp = std::min((int)orientSamp.size(), curOrientSampIdx + winLen/2);
+
+//            double curOrient = orientSamp[curOrientSampIdx];
+            double curOrient = Utils::meanOrient(std::vector<double>(orientSamp.begin() + startSamp,
+                                                                     orientSamp.begin() + endSamp));
 //            orientMeas.push_back(Utils::toPiRange(curOrient - prevOrient));
             orientMeas.push_back(curOrient);
 
@@ -546,6 +555,7 @@ std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
 
 void visualizeMapProb(const std::vector<LocationWiFi> &database,
                       const std::vector<std::vector<double>> &prob,
+                      const double &orient,
                       const double &varVal,
                       const cv::Mat &mapImage,
                       const cv::Mat &mapObstacle,
@@ -597,18 +607,24 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
     cv::applyColorMap(probValScaled, probVis, cv::COLORMAP_JET);
     
     {
-        int mapXIdx = ((int)varVal) % mapGridSizeX;
-        int mapYIdx = ((int)varVal) / mapGridSizeX;
+        int mapXIdx, mapYIdx, oIdx;
+        valToMapGrid(varVal, mapXIdx, mapYIdx, oIdx);
         LocationXY loc = mapGridToCoord(mapXIdx, mapYIdx);
+        double orientVal = orientIdxToOrient(oIdx);
         cv::Point2d pt(loc.x, loc.y);
-//        cv::circle(mapVis, pt * mapScale, 5, cv::Scalar(0, 255, 0), CV_FILLED);
+        static constexpr double radius = 2.0;
+//        cv::Point2d ptDir(loc.x + radius * cos(orientVal), loc.y + radius * sin(orientVal));
+        cv::Point2d ptDir(loc.x + radius * cos(orient), loc.y + radius * sin(orient));
+
+        cv::circle(mapVis, pt * mapScale, radius * mapScale, cv::Scalar(0, 255, 0));
+        cv::line(mapVis, pt * mapScale, ptDir * mapScale, cv::Scalar(0, 255, 0), 2);
     }
     
-//    {
-//        probVal.setTo(cv::Scalar(0.25, 0.25, 0.25));
-//        probVis.setTo(cv::Scalar(255, 255, 255));
+    {
+        probVal.setTo(cv::Scalar(0.25, 0.25, 0.25));
+        probVis.setTo(cv::Scalar(255, 255, 255));
 //        probVis.setTo(cv::Scalar(0, 255, 0), mapObstacle == 0);
-//    }
+    }
     
     cv::Mat probVisBlended(probVis.clone());
     cv::Mat mapVisBlended(mapVis.clone());
@@ -624,6 +640,7 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
     cv::imshow("map", vis);
     
     cv::waitKey(100);
+//    cv::waitKey(-1);
 }
 
 void visualizeMapInfer(const std::vector<LocationWiFi> &database,
@@ -1145,10 +1162,10 @@ void removeNotMatchedLocations(std::vector<LocationWiFi> &wifiLocations,
 
 int main() {
     try{
-//        static constexpr bool estimateParams = true;
-//        static constexpr bool infer = false;
-        static constexpr bool estimateParams = false;
-        static constexpr bool infer = true;
+        static constexpr bool estimateParams = true;
+        static constexpr bool infer = false;
+//        static constexpr bool estimateParams = false;
+//        static constexpr bool infer = true;
         
         static constexpr int seqLen = 10;
         
@@ -1216,6 +1233,7 @@ int main() {
             for (int i = 0; i < curTrajLocations.size(); ++i) {
                 visualizeMapProb(mapLocations,
                                  curProbs[i],
+                                 curOrients[i],
                                  curVarVals[i],
                                  mapImage,
                                  mapObstacles,
