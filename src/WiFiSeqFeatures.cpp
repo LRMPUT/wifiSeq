@@ -58,17 +58,12 @@ OrientFeature::OrientFeature(int iid,
 }
 
 double OrientFeature::comp(const std::vector<double> &vals, const std::vector<double> &obsVec) {
-    int oOffsetIdx = (int)round(vals[0]);
-    int loc = (int)round(vals[1]);
+    int loc = (int)round(vals[0]);
 
     double orientMeas = obsVec[0];
+    double orient = obsVec[1 + loc];
 
-    double oOffset = obsVec[1 + oOffsetIdx];
-    double orient = obsVec[1 + orientSectors + loc];
-
-    double orientAbs = Utils::toPiRange(orient + oOffset);
-
-    double error = Utils::angDiff(orientMeas, orientAbs);
+    double error = Utils::angDiff(orientMeas, orient);
 
 //    double ret = exp(-error*error / (sigmaDist*sigmaDist));
     double ret = -error * error / (sigmaOrient * sigmaOrient);
@@ -114,15 +109,20 @@ double MoveFeature::comp(const std::vector<double> &vals, const std::vector<doub
     
     double x1 = obsVec[1 + loc1];
     double y1 = obsVec[1 + mapSize + loc1];
+    double o1 = obsVec[1 + 2 * mapSize + loc1];
     double x2 = obsVec[1 + loc2];
     double y2 = obsVec[1 + mapSize + loc2];
+    double o2 = obsVec[1 + 2 * mapSize + loc2];
 
-    double dist = sqrt((x1 - x2)*(x1 - x2) + (y1 - y2)*(y1 - y2));
+    double x2_pred = x1 + distStep * cos(o1);
+    double y2_pred = y1 + distStep * sin(o1);
+    double error = sqrt((x2_pred - x2)*(x2_pred - x2) + (y2_pred - y2)*(y2_pred - y2));
+
+//    double dist = sqrt((x1 - x2)*(x1 - x2) + (y1 - y2)*(y1 - y2));
+//    double error = dist - distStep;
     
-    double distDiff = dist - distStep;
-    
-//    double ret = exp(-distDiff*distDiff / (sigmaDist*sigmaDist));
-    double ret = -distDiff*distDiff / (sigmaDist*sigmaDist);
+//    double ret = exp(-error*error / (sigmaDist*sigmaDist));
+    double ret = -error * error / (sigmaDist * sigmaDist);
     
 //    ret = std::max(ret, -20.0);
 //    if(std::isnan(ret) || std::isinf(ret)){
