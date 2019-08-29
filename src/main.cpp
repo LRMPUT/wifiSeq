@@ -60,7 +60,7 @@ double orientIdxToOrient(int oIdx){
 }
 
 int orientToOrientIdx(double o){
-    int oIdx = (int)((o + orientSectorLen / 2.0) / orientSectorLen);
+    int oIdx = (int)((o + 2 * M_PI + orientSectorLen / 2.0) / orientSectorLen);
     oIdx = ((oIdx % orientSectors) + orientSectors) % orientSectors;
     return oIdx;
 }
@@ -321,9 +321,9 @@ void readTrajectory(const boost::filesystem::path &dirPath,
     }
     
     {
-        static constexpr int winLen = 32;
+        static constexpr int winLen = 256;
         static constexpr double stepLen = 0.7;
-        static constexpr double accSampFreq = 25;
+        static constexpr double accSampFreq = 200;
         static constexpr double freqMin = 1.1;
         static constexpr double freqMax = 2.6;
         static constexpr double fftMagThresh = 0.2;
@@ -409,14 +409,14 @@ void readTrajectory(const boost::filesystem::path &dirPath,
         double orientOffsetSin = 0;
         double orientOffsetCos = 0;
         for(int s = 0; s < orientMeas.size(); ++s) {
-            int locX = std::round(wifiLocations[s].locationXY.x);
-            int locY = std::round(wifiLocations[s].locationXY.y);
+            double locX = wifiLocations[s].locationXY.x;
+            double locY = wifiLocations[s].locationXY.y;
             double orientMap = 0.0;
             if(s < orientMeas.size() - 1){
-                int nextLocX = std::round(wifiLocations[s + 1].locationXY.x);
-                int nextLocY = std::round(wifiLocations[s + 1].locationXY.y);
-                int dx = nextLocX - locX;
-                int dy = nextLocY - locY;
+                double nextLocX = wifiLocations[s + 1].locationXY.x;
+                double nextLocY = wifiLocations[s + 1].locationXY.y;
+                double dx = nextLocX - locX;
+                double dy = nextLocY - locY;
                 orientMap = atan2(dy, dx);
             }
 
@@ -613,8 +613,8 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
         double orientVal = orientIdxToOrient(oIdx);
         cv::Point2d pt(loc.x, loc.y);
         static constexpr double radius = 2.0;
-//        cv::Point2d ptDir(loc.x + radius * cos(orientVal), loc.y + radius * sin(orientVal));
-        cv::Point2d ptDir(loc.x + radius * cos(orient), loc.y + radius * sin(orient));
+        cv::Point2d ptDir(loc.x + radius * cos(orientVal), loc.y + radius * sin(orientVal));
+//        cv::Point2d ptDir(loc.x + radius * cos(orient), loc.y + radius * sin(orient));
 
         cv::circle(mapVis, pt * mapScale, radius * mapScale, cv::Scalar(0, 255, 0));
         cv::line(mapVis, pt * mapScale, ptDir * mapScale, cv::Scalar(0, 255, 0), 2);
@@ -639,8 +639,8 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
     
     cv::imshow("map", vis);
     
-    cv::waitKey(100);
-//    cv::waitKey(-1);
+//    cv::waitKey(100);
+    cv::waitKey(-1);
 }
 
 void visualizeMapInfer(const std::vector<LocationWiFi> &database,
@@ -854,7 +854,7 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
     // random variables
     int nextRandVarId = 0;
     // last position has the same orientation assigned as the previous position
-    int prevLocO = 0;
+    int prevLocOIdx = 0;
     for(int i = 0; i < probs.size(); ++i){
         locIdxToVarClusterId[i] = nextRandVarId;
     
@@ -864,25 +864,42 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
                 maxProb = max(maxProb, probs[i][mapYIdx][mapXIdx]);
             }
         }
-    
-        int locX = std::round(wifiLocations[i].locationXY.x);
-        int locY = std::round(wifiLocations[i].locationXY.y);
-        int locO = prevLocO;
-        if( i < probs.size() - 1){
-            int nextLocX = std::round(wifiLocations[i + 1].locationXY.x);
-            int nextLocY = std::round(wifiLocations[i + 1].locationXY.y);
-            int dx = nextLocX - locX;
-            int dy = nextLocY - locY;
-            double orient = atan2(dy, dx);
-            locO = orientToOrientIdx(orient);
 
-            prevLocO = locO;
+        double locX = wifiLocations[i].locationXY.x;
+        double locY = wifiLocations[i].locationXY.y;
+        int locOIdx = prevLocOIdx;
+        if( i < probs.size() - 1){
+            double nextLocX = wifiLocations[i + 1].locationXY.x;
+            double nextLocY = wifiLocations[i + 1].locationXY.y;
+            double dx = nextLocX - locX;
+            double dy = nextLocY - locY;
+            double orient = atan2(dy, dx);
+            locOIdx = orientToOrientIdx(orient);
+
+            {
+                double curDist = stepDists[i + 1];
+                double curOrient = orientIdxToOrient(locOIdx);
+                double nextLocXPred = locX + curDist * cos(curOrient);
+                double nextLocYPred = locY + curDist * sin(curOrient);
+
+                double error = sqrt((nextLocX - nextLocXPred)*(nextLocX - nextLocXPred) +
+                        (nextLocY - nextLocYPred)*(nextLocY - nextLocYPred));
+                double orientError = Utils::angDiff(curOrient, orientMap[i]);
+
+                cout << "step = " << i << ", error = " << error << ", orientError  = " << orientError << endl;
+//                cout << "loc = (" << locX << ", " << locY << "), nextLoc = (" << nextLocX << ", " << nextLocY << ")" <<
+//                        ", d = (" << curDist * cos(curOrient) << ", " << curDist * sin(curOrient) << ")" << endl;
+//                cout << "step = " << i << ", dist = " << curDist << ", error = " << error << endl;
+            }
+
+            prevLocOIdx = locOIdx;
         }
 
-        double varVal = mapGridToVal(locX, locY, locO);
+        pair<int, int> mapIdx = mapCoordToGrid(locX, locY);
+        double varVal = mapGridToVal(mapIdx.first, mapIdx.second, locOIdx);
         double closestDist = std::numeric_limits<double>::max();
-        int closestX = locX;
-        int closestY = locY;
+        int closestXIdx = mapIdx.first;
+        int closestYIdx = mapIdx.second;
         
         double curProbThresh = min(probThresh, maxProb / probRatio);
         vector<double> rvVals;
@@ -903,8 +920,8 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
                     double dist = sqrt((loc.x - locX) * (loc.x - locX) + (loc.y - locY) * (loc.y - locY));
                     if (dist < closestDist) {
                         closestDist = dist;
-                        closestX = mapXIdx;
-                        closestY = mapYIdx;
+                        closestXIdx = mapXIdx;
+                        closestYIdx = mapYIdx;
                     }
                 }
             }
@@ -915,7 +932,7 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
             cout << "Warning - varVal not in rvVals, substituting with the closest" << endl;
             cout << "Closest distance = " << closestDist << endl;
             
-            varVal = mapGridToVal(closestX, closestY, locO);
+            varVal = mapGridToVal(closestXIdx, closestYIdx, locOIdx);
         }
         varVals.push_back(varVal);
         
@@ -1079,7 +1096,8 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
 //    pgm.params() = vector<double>{1.64752, 21.8728};
 //    pgm.params() = vector<double>{1.0, 1.0};
     
-    pgm.params() = vector<double>{1.39533, 4.95359, 1.0};
+    pgm.params() = vector<double>{5.06612, 0.0721242, 1.09273};
+
     
     return pgm;
 }
@@ -1186,6 +1204,8 @@ int main() {
         vector<boost::filesystem::path> trajDirPaths{"../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj1",
                                                      "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj2",
                                                      "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj3"};
+//        vector<boost::filesystem::path> trajDirPaths{"../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj4",
+//                                                     "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj5"};
         
         vector<Pgm> pgms;
         vector<vector<double>> obsVecs;

@@ -114,9 +114,9 @@ double MoveFeature::comp(const std::vector<double> &vals, const std::vector<doub
     double y2 = obsVec[1 + mapSize + loc2];
     double o2 = obsVec[1 + 2 * mapSize + loc2];
 
-    double x2_pred = x1 + distStep * cos(o1);
-    double y2_pred = y1 + distStep * sin(o1);
-    double error = sqrt((x2_pred - x2)*(x2_pred - x2) + (y2_pred - y2)*(y2_pred - y2));
+    double x2Pred = x1 + distStep * cos(o1);
+    double y2Pred = y1 + distStep * sin(o1);
+    double error = sqrt((x2Pred - x2) * (x2Pred - x2) + (y2Pred - y2) * (y2Pred - y2));
 
 //    double dist = sqrt((x1 - x2)*(x1 - x2) + (y1 - y2)*(y1 - y2));
 //    double error = dist - distStep;
