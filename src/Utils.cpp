@@ -32,16 +32,19 @@ double Utils::angDiff(double o1, double o2) {
     }
 }
 
-double Utils::meanOrient(const std::vector<double> &orients) {
+double Utils::meanOrient(const std::vector<double>::const_iterator &beg,
+                         const std::vector<double>::const_iterator &end) {
     double orientOffsetSin = 0;
     double orientOffsetCos = 0;
-    for(int i = 0; i < orients.size(); ++i){
-        orientOffsetSin += sin(orients[i]);
-        orientOffsetCos += cos(orients[i]);
+    int cnt = 0;
+    for(auto it = beg; it != end; ++it){
+        orientOffsetSin += sin(*it);
+        orientOffsetCos += cos(*it);
+        ++cnt;
     }
     // mean using sin and cos
-    orientOffsetSin /= orients.size();
-    orientOffsetCos /= orients.size();
+    orientOffsetSin /= cnt;
+    orientOffsetCos /= cnt;
 
     // if not spread uniformly on the circle
     if(orientOffsetSin*orientOffsetSin + orientOffsetCos*orientOffsetCos > 0.01) {
@@ -49,6 +52,6 @@ double Utils::meanOrient(const std::vector<double> &orients) {
     }
     // return middle value
     else {
-        return orients[orients.size() / 2];
+        return *(beg + cnt / 2);
     }
 }

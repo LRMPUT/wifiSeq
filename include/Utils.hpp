@@ -26,7 +26,7 @@ static constexpr int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
 static constexpr double wifiSigma = 8.0;
 static constexpr double errorSigma = 2;
 static constexpr double distSigma = 2.0;
-static constexpr double orientSigma = 0.2;
+static constexpr double orientSigma = 0.8;
 
 // parameter estimation
 //static constexpr double probThresh = 0.075;
@@ -54,7 +54,8 @@ public:
 
     static double angDiff(double o1, double o2);
 
-    static double meanOrient(const std::vector<double> &orients);
+    static double meanOrient(const std::vector<double>::const_iterator &beg,
+                             const std::vector<double>::const_iterator &end);
 };
 
 

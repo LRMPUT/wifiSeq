@@ -28,7 +28,7 @@ double LocFeature::comp(const std::vector<double> &vals, const std::vector<doubl
     loc /= orientSectors;
     
     double ret = log(obsVec[loc]);
-    ret = std::max(ret, -20.0);
+//    ret = std::max(ret, -20.0);
 //    if(std::isnan(ret) || std::isinf(ret)){
 //        ret = 0;
 //    }
@@ -63,12 +63,16 @@ double OrientFeature::comp(const std::vector<double> &vals, const std::vector<do
     double orientMeas = obsVec[0];
     double orient = obsVec[1 + loc];
 
-    double error = Utils::angDiff(orientMeas, orient);
+//    double error = Utils::angDiff(orientMeas, orient);
+    double error = 0.0;
+    if(std::abs(orient) > 0.01){
+        error = 1.0;
+    }
 
 //    double ret = exp(-error*error / (sigmaDist*sigmaDist));
     double ret = -error * error / (sigmaOrient * sigmaOrient);
 
-    ret = std::max(ret, -20.0);
+//    ret = std::max(ret, -20.0);
 //    if(std::isnan(ret) || std::isinf(ret)){
 //        ret = 0;
 //    }
@@ -114,17 +118,17 @@ double MoveFeature::comp(const std::vector<double> &vals, const std::vector<doub
     double y2 = obsVec[1 + mapSize + loc2];
     double o2 = obsVec[1 + 2 * mapSize + loc2];
 
-    double x2Pred = x1 + distStep * cos(o1);
-    double y2Pred = y1 + distStep * sin(o1);
-    double error = sqrt((x2Pred - x2) * (x2Pred - x2) + (y2Pred - y2) * (y2Pred - y2));
+//    double x2Pred = x1 + distStep * cos(o1);
+//    double y2Pred = y1 + distStep * sin(o1);
+//    double error = sqrt((x2Pred - x2) * (x2Pred - x2) + (y2Pred - y2) * (y2Pred - y2));
 
-//    double dist = sqrt((x1 - x2)*(x1 - x2) + (y1 - y2)*(y1 - y2));
-//    double error = dist - distStep;
+    double dist = sqrt((x1 - x2)*(x1 - x2) + (y1 - y2)*(y1 - y2));
+    double error = dist - distStep;
     
 //    double ret = exp(-error*error / (sigmaDist*sigmaDist));
     double ret = -error * error / (sigmaDist * sigmaDist);
     
-    ret = std::max(ret, -20.0);
+//    ret = std::max(ret, -20.0);
 //    if(std::isnan(ret) || std::isinf(ret)){
 //        ret = 0;
 //    }
@@ -134,6 +138,69 @@ double MoveFeature::comp(const std::vector<double> &vals, const std::vector<doub
 double MoveFeature::compParam(const std::vector<double> &vals,
                               const std::vector<double> &params,
                               const std::vector<double> &obsVec)
+{
+    return params[paramNum()]*comp(vals, obsVec);
+}
+
+
+
+OrientMoveFeature::OrientMoveFeature(int iid,
+                                     int iparamNum,
+                                     const std::vector<std::shared_ptr<RandVar>> &irandVarsOrdered,
+                                     const std::vector<int> &iobsNums,
+                                     int imapSize,
+                                     double isigmaOrient)
+        : Feature(iid,
+                  iparamNum,
+                  irandVarsOrdered,
+                  iobsNums),
+          mapSize(imapSize),
+          sigmaOrient(isigmaOrient)
+{
+
+}
+
+double OrientMoveFeature::comp(const std::vector<double> &vals, const std::vector<double> &obsVec) {
+    static constexpr double thresh = M_PI_2;
+//    static constexpr double alpha =
+
+    int loc1 = (int)round(vals[0]);
+    int loc2 = (int)round(vals[1]);
+
+    double orientMeas = obsVec[0];
+
+    double x1 = obsVec[1 + loc1];
+    double y1 = obsVec[1 + mapSize + loc1];
+    double o1 = obsVec[1 + 2 * mapSize + loc1];
+    double x2 = obsVec[1 + loc2];
+    double y2 = obsVec[1 + mapSize + loc2];
+    double o2 = obsVec[1 + 2 * mapSize + loc2];
+
+    double dx = x2 - x1;
+    double dy = y2 - y1;
+    double orient = atan2(dy, dx);
+    double error = Utils::angDiff(orient, orientMeas);
+
+    double ret = 0;
+    if(std::abs(error) < thresh){
+        ret = -std::abs(ret);
+    }
+    else{
+        ret = -(error * error + thresh * thresh) / (2 * thresh);
+    }
+
+    ret /= (sigmaOrient * sigmaOrient);
+
+//    ret = std::max(ret, -20.0);
+//    if(std::isnan(ret) || std::isinf(ret)){
+//        ret = 0;
+//    }
+    return ret;
+}
+
+double OrientMoveFeature::compParam(const std::vector<double> &vals,
+                                    const std::vector<double> &params,
+                                    const std::vector<double> &obsVec)
 {
     return params[paramNum()]*comp(vals, obsVec);
 }
