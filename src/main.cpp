@@ -20,6 +20,7 @@
 #include "WiFiSeqFeatures.hpp"
 #include "Stepometer.hpp"
 
+
 using namespace std;
 
 
@@ -498,7 +499,7 @@ std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
 
 //    int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
 //    int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
-    vector<vector<double>> prob(mapGridSizeY, vector<double>(mapGridSizeX, 0.01));
+    vector<vector<double>> prob(mapGridSizeY, vector<double>(mapGridSizeX, minProb));
     
     double meanErrorWknn = 0.0;
     LocationXY locWknn = wknn(database, loc, wknnk, meanErrorWknn);
@@ -876,27 +877,24 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
             double orient = atan2(dy, dx);
             locOIdx = orientToOrientIdx(orient);
 
-            {
-                double curDist = stepDists[i + 1];
-                double curOrient = orientIdxToOrient(locOIdx);
-                double nextLocXPred = locX + curDist * cos(curOrient);
-                double nextLocYPred = locY + curDist * sin(curOrient);
-
-                double error = sqrt((nextLocX - nextLocXPred)*(nextLocX - nextLocXPred) +
-                        (nextLocY - nextLocYPred)*(nextLocY - nextLocYPred));
-                double orientError = Utils::angDiff(curOrient, orientMap[i]);
+//            {
+//                double curDist = stepDists[i + 1];
+//                double curOrient = orientIdxToOrient(locOIdx);
+//                double nextLocXPred = locX + curDist * cos(curOrient);
+//                double nextLocYPred = locY + curDist * sin(curOrient);
+//
+//                double error = sqrt((nextLocX - nextLocXPred)*(nextLocX - nextLocXPred) +
+//                        (nextLocY - nextLocYPred)*(nextLocY - nextLocYPred));
+//                double orientError = Utils::angDiff(curOrient, orientMap[i]);
 
 //                cout << "step = " << i << ", error = " << error << ", orientError  = " << orientError << endl;
 //                cout << "loc = (" << locX << ", " << locY << "), nextLoc = (" << nextLocX << ", " << nextLocY << ")" <<
 //                        ", d = (" << curDist * cos(curOrient) << ", " << curDist * sin(curOrient) << ")" << endl;
 //                cout << "step = " << i << ", dist = " << curDist << ", error = " << error << endl;
-            }
+//            }
 
             prevLocOIdx = locOIdx;
         }
-
-        // TODO for tests without orientation included in state
-        locOIdx = 0;
 
         pair<int, int> mapIdx = mapCoordToGrid(locX, locY);
         double varVal = mapGridToVal(mapIdx.first, mapIdx.second, locOIdx);
@@ -957,42 +955,51 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
                                                    nextParamId,
                                                    vector<shared_ptr<RandVar>>{randVars[i]},
                                                    curObsVecIdxs));
+
+//        {
+//            vector<double> curObsVec;
+//            for(int o = 0; o < curObsVecIdxs.size(); ++o){
+//                curObsVec.push_back(obsVec[curObsVecIdxs[o]]);
+//            }
+//            cout << "step " << i << ", locFeat val = " << curFeat->comp(vector<double>{varVals[i - 1], varVals[i]},
+//                                                                               curObsVec) << endl;
+//        }
         
         locFeats.push_back(curFeat);
         feats.push_back(curFeat);
     }
     ++nextParamId;
 
-    // orient features
-    vector<shared_ptr<Feature>> orientFeats;
-    for(int i = 0; i < probs.size(); ++i){
-        vector<int> curObsVecIdxs(1 + mapSize);
-        // orientation measurement
-        curObsVecIdxs[0] = obsVecStartOrientMeas + i;
-        // orientations for each location
-        iota(curObsVecIdxs.begin() + 1,
-             curObsVecIdxs.begin() + 1 + mapSize,
-             obsVecStartLoc + 2 * mapSize);
-
-        shared_ptr<Feature> curFeat(new OrientFeature(nextFeatId++,
-                                                      nextParamId,
-                                                      vector<shared_ptr<RandVar>>{randVars[i]},
-                                                      curObsVecIdxs,
-                                                      orientSigma));
-
-        {
-            vector<double> curObsVec;
-            for(int o = 0; o < curObsVecIdxs.size(); ++o){
-                curObsVec.push_back(obsVec[curObsVecIdxs[o]]);
-            }
-            cout << "step " << i << ", orientFeat val = " << curFeat->comp(vector<double>{varVals[i]},
-                                                                         curObsVec) << endl;
-        }
-
-        orientFeats.push_back(curFeat);
-        feats.push_back(curFeat);
-    }
-    ++nextParamId;
+//    // orient features
+//    vector<shared_ptr<Feature>> orientFeats;
+//    for(int i = 0; i < probs.size(); ++i){
+//        vector<int> curObsVecIdxs(1 + mapSize);
+//        // orientation measurement
+//        curObsVecIdxs[0] = obsVecStartOrientMeas + i;
+//        // orientations for each location
+//        iota(curObsVecIdxs.begin() + 1,
+//             curObsVecIdxs.begin() + 1 + mapSize,
+//             obsVecStartLoc + 2 * mapSize);
+//
+//        shared_ptr<Feature> curFeat(new OrientFeature(nextFeatId++,
+//                                                      nextParamId,
+//                                                      vector<shared_ptr<RandVar>>{randVars[i]},
+//                                                      curObsVecIdxs,
+//                                                      orientSigma));
+//
+//        {
+//            vector<double> curObsVec;
+//            for(int o = 0; o < curObsVecIdxs.size(); ++o){
+//                curObsVec.push_back(obsVec[curObsVecIdxs[o]]);
+//            }
+//            cout << "step " << i << ", orientFeat val = " << curFeat->comp(vector<double>{varVals[i]},
+//                                                                         curObsVec) << endl;
+//        }
+//
+//        orientFeats.push_back(curFeat);
+//        feats.push_back(curFeat);
+//    }
+//    ++nextParamId;
 
     // move features
     vector<shared_ptr<Feature>> moveFeats;
@@ -1048,14 +1055,14 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
                                                     mapSize,
                                                     orientSigma));
 
-        {
-            vector<double> curObsVec;
-            for(int o = 0; o < curObsVecIdxs.size(); ++o){
-                curObsVec.push_back(obsVec[curObsVecIdxs[o]]);
-            }
-            cout << "step " << i << ", orientMoveFeat val = " << curFeat->comp(vector<double>{varVals[i - 1], varVals[i]},
-                                                                         curObsVec) << endl;
-        }
+//        {
+//            vector<double> curObsVec;
+//            for(int o = 0; o < curObsVecIdxs.size(); ++o){
+//                curObsVec.push_back(obsVec[curObsVecIdxs[o]]);
+//            }
+//            cout << "step " << i << ", orientMoveFeat val = " << curFeat->comp(vector<double>{varVals[i - 1], varVals[i]},
+//                                                                         curObsVec) << endl;
+//        }
 
         orientMoveFeats.push_back(curFeat);
         feats.push_back(curFeat);
@@ -1107,35 +1114,35 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         clusters.push_back(curCluster);
     }
 
-    vector<shared_ptr<Cluster>> orientFeatClusters;
-    for(int i = 0; i < probs.size(); ++i){
-        shared_ptr<Cluster> curCluster(new Cluster(nextClusterId++,
-                                                   vector<shared_ptr<Feature>>{orientFeats[i]},
-                                                   vector<shared_ptr<RandVar>>{randVars[i]}));
-
-        orientFeatClusters.push_back(curCluster);
-        clusters.push_back(curCluster);
-    }
+//    vector<shared_ptr<Cluster>> orientFeatClusters;
+//    for(int i = 0; i < probs.size(); ++i){
+//        shared_ptr<Cluster> curCluster(new Cluster(nextClusterId++,
+//                                                   vector<shared_ptr<Feature>>{orientFeats[i]},
+//                                                   vector<shared_ptr<RandVar>>{randVars[i]}));
+//
+//        orientFeatClusters.push_back(curCluster);
+//        clusters.push_back(curCluster);
+//    }
     
     vector<shared_ptr<Cluster>> moveFeatClusters;
     for(int i = 1; i < probs.size(); ++i){
         shared_ptr<Cluster> curCluster(new Cluster(nextClusterId++,
-                                                   vector<shared_ptr<Feature>>{moveFeats[i - 1]},
+                                                   vector<shared_ptr<Feature>>{moveFeats[i - 1], orientMoveFeats[i - 1]},
                                                    vector<shared_ptr<RandVar>>{randVars[i - 1], randVars[i]}));
     
         moveFeatClusters.push_back(curCluster);
         clusters.push_back(curCluster);
     }
 
-    vector<shared_ptr<Cluster>> orientMoveFeatClusters;
-    for(int i = 1; i < probs.size(); ++i){
-        shared_ptr<Cluster> curCluster(new Cluster(nextClusterId++,
-                                                   vector<shared_ptr<Feature>>{orientMoveFeats[i - 1]},
-                                                   vector<shared_ptr<RandVar>>{randVars[i - 1], randVars[i]}));
-
-        orientMoveFeatClusters.push_back(curCluster);
-        clusters.push_back(curCluster);
-    }
+//    vector<shared_ptr<Cluster>> orientMoveFeatClusters;
+//    for(int i = 1; i < probs.size(); ++i){
+//        shared_ptr<Cluster> curCluster(new Cluster(nextClusterId++,
+//                                                   vector<shared_ptr<Feature>>{orientMoveFeats[i - 1]},
+//                                                   vector<shared_ptr<RandVar>>{randVars[i - 1], randVars[i]}));
+//
+//        orientMoveFeatClusters.push_back(curCluster);
+//        clusters.push_back(curCluster);
+//    }
     
     // create pgm
     Pgm pgm(randVars, clusters, feats);
@@ -1145,17 +1152,17 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         pgm.addEdgeToPgm(rvClusters[i], locFeatClusters[i], vector<shared_ptr<RandVar>>{randVars[i]});
     }
 
-    // edges from random variable clusters to orientation feature clusters
-    for(int i = 0; i < probs.size(); ++i){
-        pgm.addEdgeToPgm(rvClusters[i], orientFeatClusters[i], vector<shared_ptr<RandVar>>{randVars[i]});
-    }
+//    // edges from random variable clusters to orientation feature clusters
+//    for(int i = 0; i < probs.size(); ++i){
+//        pgm.addEdgeToPgm(rvClusters[i], orientFeatClusters[i], vector<shared_ptr<RandVar>>{randVars[i]});
+//    }
     
     for(int i = 1; i < probs.size(); ++i){
         pgm.addEdgeToPgm(rvClusters[i - 1], moveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i - 1]});
         pgm.addEdgeToPgm(rvClusters[i], moveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i]});
 
-        pgm.addEdgeToPgm(rvClusters[i - 1], orientMoveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i - 1]});
-        pgm.addEdgeToPgm(rvClusters[i], orientMoveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i]});
+//        pgm.addEdgeToPgm(rvClusters[i - 1], orientMoveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i - 1]});
+//        pgm.addEdgeToPgm(rvClusters[i], orientMoveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i]});
     }
     
     // prob map by wknn
@@ -1164,11 +1171,8 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
 //    pgm.params() = vector<double>{1.64752, 21.8728};
 //    pgm.params() = vector<double>{1.0, 1.0};
 
-    // first tests
-//    pgm.params() = vector<double>{5.06612, 0.0721242, 1.09273};
-//    pgm.params() = vector<double>{4.12327, 0.402497, 3.7495};
-
-    pgm.params() = vector<double>{1.0, 1.0, 1.0, 1.0};
+    pgm.params() = vector<double>{2.22835, 3.36533, 0.885725};
+//    pgm.params() = vector<double>{2.60168, 3.39544, -2.56049e-05};
 
     return pgm;
 }
@@ -1182,7 +1186,8 @@ vector<LocationXY> inferLocations(int nloc,
     
     vector<vector<double>> marg;
     vector<vector<vector<double>>> msgs;
-    vector<double> params{1.0, 1.0};
+//    vector<double> params{1.0, 1.0};
+    vector<double> params = pgm.params();
     
     bool calibrated = Inference::compMAPParam(pgm,
                                             marg,
@@ -1231,10 +1236,12 @@ void removeNotMatchedLocations(std::vector<LocationWiFi> &wifiLocations,
             }
         }
         
-        if(maxVal < 1e-5){
+        if(maxVal <= minProb){
+            cout << endl << "removing location" << endl << endl;
             if(i < probs.size() - 1){
                 // adding distance to next location
                 stepDists[i + 1] += stepDists[i];
+                orients[i + 1] = Utils::meanOrient(orients.begin() + i, orients.begin() + i + 1 + 1);
             }
             
             wifiLocations.erase(wifiLocations.begin() + i);
@@ -1250,13 +1257,15 @@ void removeNotMatchedLocations(std::vector<LocationWiFi> &wifiLocations,
 
 
 int main() {
-    try{
-        static constexpr bool estimateParams = true;
-        static constexpr bool infer = false;
-//        static constexpr bool estimateParams = false;
-//        static constexpr bool infer = true;
+//    try{
+        static constexpr bool stopVis = false;
+
+//        static constexpr bool estimateParams = true;
+//        static constexpr bool infer = false;
+        static constexpr bool estimateParams = false;
+        static constexpr bool infer = true;
         
-        static constexpr int seqLen = 10;
+        static constexpr int seqLen = 5;
         
 //        boost::filesystem::path mapDirPath("../res/Maps/PUTMC_Lenovo_18_05_21_full");
         boost::filesystem::path mapDirPath("../res/IGL/PUTMC_Floor3_Xperia_map");
@@ -1272,11 +1281,35 @@ int main() {
 //        vector<boost::filesystem::path> trajDirPaths{"../res/Trajectories/traj4",
 //                                                     "../res/Trajectories/traj5",
 //                                                     "../res/Trajectories/traj6"};
-        vector<boost::filesystem::path> trajDirPaths{"../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj1",
-                                                     "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj2",
-                                                     "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj3"};
-//        vector<boost::filesystem::path> trajDirPaths{"../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj4",
-//                                                     "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj5"};
+        vector<boost::filesystem::path> trajDirPaths;
+        if(estimateParams) {
+            trajDirPaths = {"../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj2",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj12",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj13",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj14",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj17",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj21"};
+        }
+        else {
+            trajDirPaths = {"../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj1",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj3",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj4",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj5",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj6_JW",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj7_JW",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj8_JW",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj9_JW",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj10_JW",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj11",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj15",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj16",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj18",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj19",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj20",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj22",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj23",
+                             "../res/IGL/PUTMC_Floor3_Xperia_trajs/xperia_traj24"};
+        }
         
         vector<Pgm> pgms;
         vector<vector<double>> obsVecs;
@@ -1331,9 +1364,9 @@ int main() {
                                  mapScale);
             }
         
-            if(infer) {
+            {
     
-                {
+                if(curTrajLocations.size() >= seqLen){
                     vector<LocationXY> infLocAll;
                     vector<LocationXY> wknnLocAll;
                     
@@ -1346,7 +1379,8 @@ int main() {
                     int errorCntComp = 0;
 
                     for (int i = seqLen - 1; i < curTrajLocations.size(); ++i) {
-                        
+                        bool stopVisSeq = false;
+
                         chrono::steady_clock::time_point startTime = chrono::steady_clock::now();
                         vector<double> iObsVec;
                         map<int, int> iLocIdxToRandVarClusterId;
@@ -1367,85 +1401,96 @@ int main() {
                                             iLocIdxToRandVarClusterId,
                                             iVarVals);
 
-                        vector<LocationXY> infLoc = inferLocations(seqLen,
-                                                                   iPgm,
-                                                                   iObsVec,
-                                                                   iLocIdxToRandVarClusterId);
-                        
-                        chrono::steady_clock::time_point endTime = chrono::steady_clock::now();
-                        infDur += endTime - startTime;
-                        ++infTimeCnt;
-                        
-                        infLocAll.push_back(infLoc.back());
-                        {
-                            double dx = infLoc.back().x - curTrajLocations[i].locationXY.x;
-                            double dy = infLoc.back().y - curTrajLocations[i].locationXY.y;
-                            double curError = sqrt(dx * dx + dy * dy);
-                            errorSum += curError;
-                            errors.push_back(curError);
-                            ++errorCnt;
+                        if(infer) {
+                            vector<LocationXY> infLoc = inferLocations(seqLen,
+                                                                       iPgm,
+                                                                       iObsVec,
+                                                                       iLocIdxToRandVarClusterId);
 
-                            cout << "curError = " << curError << endl;
-                        }
+                            chrono::steady_clock::time_point endTime = chrono::steady_clock::now();
+                            infDur += endTime - startTime;
+                            ++infTimeCnt;
 
-                        vector<LocationXY> wknnLoc;
-                        for (int t = i - seqLen + 1; t <= i; ++t) {
-                            double meanErrorWknn = 0.0;
-                            LocationXY curLoc = wknn(mapLocations,
-                                                     curTrajLocations[t],
-                                                     wknnk,
-                                                     meanErrorWknn);
+                            infLocAll.push_back(infLoc.back());
+                            {
+                                double dx = infLoc.back().x - curTrajLocations[i].locationXY.x;
+                                double dy = infLoc.back().y - curTrajLocations[i].locationXY.y;
+                                double curError = sqrt(dx * dx + dy * dy);
+                                errorSum += curError;
+                                errors.push_back(curError);
+                                ++errorCnt;
+
+//                            if(curError > 3.0){
+//                                stopVisSeq = true;
+//                            }
+                                cout << "curError = " << curError << endl;
+                            }
+
+                            vector<LocationXY> wknnLoc;
+                            for (int t = i - seqLen + 1; t <= i; ++t) {
+                                double meanErrorWknn = 0.0;
+                                LocationXY curLoc = wknn(mapLocations,
+                                                         curTrajLocations[t],
+                                                         wknnk,
+                                                         meanErrorWknn);
 //                        cout << "curLoc = (" << curLoc.x << ", " << curLoc.y << ")" << endl;
-                            wknnLoc.push_back(curLoc);
+                                wknnLoc.push_back(curLoc);
 
-                        }
-    
-                        wknnLocAll.push_back(wknnLoc.back());
-                        {
-                            double dx = wknnLoc.back().x - curTrajLocations[i].locationXY.x;
-                            double dy = wknnLoc.back().y - curTrajLocations[i].locationXY.y;
-                            double curErrorComp = sqrt(dx * dx + dy * dy);
-                            errorSumComp += curErrorComp;
-                            errorsComp.push_back(curErrorComp);
-                            ++errorCntComp;
+                            }
 
-                            cout << "curErrorComp = " << curErrorComp << endl;
+                            wknnLocAll.push_back(wknnLoc.back());
+                            {
+                                double dx = wknnLoc.back().x - curTrajLocations[i].locationXY.x;
+                                double dy = wknnLoc.back().y - curTrajLocations[i].locationXY.y;
+                                double curErrorComp = sqrt(dx * dx + dy * dy);
+                                errorSumComp += curErrorComp;
+                                errorsComp.push_back(curErrorComp);
+                                ++errorCntComp;
+
+                                cout << "curErrorComp = " << curErrorComp << endl;
+                            }
+
+                            visualizeMapInfer(mapLocations,
+                                              vector<LocationWiFi>(
+                                                      curTrajLocations.begin() + i - seqLen + 1,
+                                                      curTrajLocations.begin() + i + 1),
+                                              infLoc,
+                                              wknnLoc,
+                                              mapImage,
+                                              mapScale,
+                                              stopVisSeq);
                         }
+
+                        pgms.push_back(iPgm);
+                        varVals.push_back(iVarVals);
+                        obsVecs.push_back(iObsVec);
+                    }
+                    if(infer) {
+                        cout << endl;
+                        if (errorCnt > 0) {
+                            cout << "mean error = " << errorSum / errorCnt << endl;
+                        }
+                        if (errorCntComp > 0) {
+                            cout << "mean comp error = " << errorSumComp / errorCntComp << endl;
+                        }
+                        cout << endl;
 
                         visualizeMapInfer(mapLocations,
                                           vector<LocationWiFi>(
-                                                  curTrajLocations.begin() + i - seqLen + 1,
-                                                  curTrajLocations.begin() + i + 1),
-                                          infLoc,
-                                          wknnLoc,
+                                                  curTrajLocations.begin() + seqLen - 1,
+                                                  curTrajLocations.end()),
+                                          infLocAll,
+                                          wknnLocAll,
                                           mapImage,
-                                          mapScale);
-                    }
-                    cout << endl;
-                    if (errorCnt > 0) {
-                        cout << "mean error = " << errorSum / errorCnt << endl;
-                    }
-                    if (errorCntComp > 0) {
-                        cout << "mean comp error = " << errorSumComp / errorCntComp << endl;
-                    }
-                    cout << endl;
-    
-                    visualizeMapInfer(mapLocations,
-                                      vector<LocationWiFi>(
-                                              curTrajLocations.begin() + seqLen - 1,
-                                              curTrajLocations.end()),
-                                      infLocAll,
-                                      wknnLocAll,
-                                      mapImage,
-                                      mapScale,
-                                      true);
-                    
-                    for (int e = 0; e < errors.size(); ++e) {
-                        errorsFile << errors[e] << " " << errorsComp[e] << endl;
-                    }
+                                          mapScale,
+                                          stopVis);
 
+                        for (int e = 0; e < errors.size(); ++e) {
+                            errorsFile << errors[e] << " " << errorsComp[e] << endl;
+                        }
+                    }
                 }
-                {
+                if(infer){
                     vector<double> errors;
                     double errorSum = 0;
                     int errorCnt = 0;
@@ -1489,7 +1534,7 @@ int main() {
                         errorSumComp += curErrorComp;
                         errorsComp.push_back(curErrorComp);
                         ++errorCntComp;
-        
+
 //                        cout << "curErrorComp = " << curErrorComp << endl;
                     }
     
@@ -1508,7 +1553,7 @@ int main() {
                                       wknnLoc,
                                       mapImage,
                                       mapScale,
-                                      true);
+                                      stopVis);
                     
                     for (int e = 0; e < errors.size(); ++e) {
                         errorsAllFile << errors[e] << " " << errorsComp[e] << endl;
@@ -1516,9 +1561,9 @@ int main() {
                 }
             }
             
-            pgms.push_back(curPgm);
-            varVals.push_back(curVarVals);
-            obsVecs.push_back(curObsVec);
+//            pgms.push_back(curPgm);
+//            varVals.push_back(curVarVals);
+//            obsVecs.push_back(curObsVec);
         }
         
         cout << "mean inference time: " << (double)infDur.count() / infTimeCnt / 1e6 << " ms" << endl;
@@ -1530,16 +1575,16 @@ int main() {
                                      varVals,
                                      obsVecs);
         }
-    }
-    catch(char const *str){
-        cout << "Catch const char* in main(): " << str << endl;
-        return -1;
-    }
-    catch(std::exception& e){
-        cout << "Catch std exception in main(): " << e.what() << endl;
-    }
-    catch(...){
-        cout << "Catch ... in main()" << endl;
-        return -1;
-    }
+//    }
+//    catch(char const *str){
+//        cout << "Catch const char* in main(): " << str << endl;
+//        return -1;
+//    }
+//    catch(std::exception& e){
+//        cout << "Catch std exception in main(): " << e.what() << endl;
+//    }
+//    catch(...){
+//        cout << "Catch ... in main()" << endl;
+//        return -1;
+//    }
 }

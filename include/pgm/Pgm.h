@@ -394,6 +394,10 @@ public:
 	inline std::vector<double>& params(){
 		return paramsData;
 	}
+
+    inline const std::vector<double>& params() const {
+        return paramsData;
+    }
 };
 
 inline bool compIdRandVars(const std::shared_ptr<RandVar> lh, const std::shared_ptr<RandVar> rh){

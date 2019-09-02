@@ -17,7 +17,7 @@ static constexpr double mapMaxX = 130.0;
 static constexpr double mapMinY = 0.0;
 static constexpr double mapMaxY = 40.0;
 // each sector is 45 deg
-static constexpr int orientSectors = 8;
+static constexpr int orientSectors = 1;
 static constexpr double orientSectorLen = 2 * M_PI / orientSectors;
 
 static constexpr int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
@@ -32,8 +32,7 @@ static constexpr double orientSigma = 0.8;
 //static constexpr double probThresh = 0.075;
 
 static constexpr double probThresh = 0.015;
-// inference
-//static constexpr double probThresh = 0.1;
+static constexpr double minProb = 0.01;
 
 static constexpr double probRatio = 2.0;
 

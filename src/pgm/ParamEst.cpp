@@ -460,7 +460,7 @@ void ParamEst::evaluate(const std::vector<double>& paramValsMapped,
 
 	cout << "paramVals = {";
 	for(int p = 0; p < (int)paramVals.size(); ++p){
-		cout << paramVals[p] << "; ";
+		cout << paramVals[p] << ", ";
 	}
 	cout << "}" << endl;
 
@@ -468,7 +468,7 @@ void ParamEst::evaluate(const std::vector<double>& paramValsMapped,
 
 	cout << "grad = {";
 	for(int p = 0; p < (int)grad.size(); ++p){
-		cout << grad[p] << "; ";
+		cout << grad[p] << ", ";
 	}
 	cout << "}" << endl;
 

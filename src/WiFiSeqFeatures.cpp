@@ -28,7 +28,7 @@ double LocFeature::comp(const std::vector<double> &vals, const std::vector<doubl
     loc /= orientSectors;
     
     double ret = log(obsVec[loc]);
-//    ret = std::max(ret, -20.0);
+    ret = std::max(ret, -20.0);
 //    if(std::isnan(ret) || std::isinf(ret)){
 //        ret = 0;
 //    }
@@ -128,7 +128,7 @@ double MoveFeature::comp(const std::vector<double> &vals, const std::vector<doub
 //    double ret = exp(-error*error / (sigmaDist*sigmaDist));
     double ret = -error * error / (sigmaDist * sigmaDist);
     
-//    ret = std::max(ret, -20.0);
+    ret = std::max(ret, -20.0);
 //    if(std::isnan(ret) || std::isinf(ret)){
 //        ret = 0;
 //    }
@@ -161,7 +161,7 @@ OrientMoveFeature::OrientMoveFeature(int iid,
 }
 
 double OrientMoveFeature::comp(const std::vector<double> &vals, const std::vector<double> &obsVec) {
-    static constexpr double thresh = M_PI_2;
+    static constexpr double thresh = M_PI / 2.0;
 //    static constexpr double alpha =
 
     int loc1 = (int)round(vals[0]);
@@ -181,17 +181,25 @@ double OrientMoveFeature::comp(const std::vector<double> &vals, const std::vecto
     double orient = atan2(dy, dx);
     double error = Utils::angDiff(orient, orientMeas);
 
-    double ret = 0;
-    if(std::abs(error) < thresh){
-        ret = -std::abs(ret);
-    }
-    else{
-        ret = -(error * error + thresh * thresh) / (2 * thresh);
-    }
+    // berHu loss function
+//    double ret = 0.0;
+//    if(std::abs(error) < thresh){
+//        ret = -std::abs(error);
+////        ret = 0;
+//    }
+//    else{
+//        ret = -(error * error + thresh * thresh) / (2 * thresh);
+////        double errorThresh = std::abs(error) - thresh;
+////        ret = -errorThresh * errorThresh;
+//    }
+
+//    double ret = -error * error;
+
+    double ret = -exp(std::abs(error) - thresh);
 
     ret /= (sigmaOrient * sigmaOrient);
 
-//    ret = std::max(ret, -20.0);
+    ret = std::max(ret, -20.0);
 //    if(std::isnan(ret) || std::isinf(ret)){
 //        ret = 0;
 //    }
