@@ -94,13 +94,15 @@ MoveFeature::MoveFeature(int iid,
                          const std::vector<std::shared_ptr<RandVar>> &irandVarsOrdered,
                          const std::vector<int> &iobsNums,
                          int imapSize,
-                         double isigmaDist)
+                         double isigmaDist,
+                         std::shared_ptr<Graph> igraph)
         : Feature(iid,
                  iparamNum,
                  irandVarsOrdered,
                  iobsNums),
           mapSize(imapSize),
-          sigmaDist(isigmaDist)
+          sigmaDist(isigmaDist),
+          graph(igraph)
 {
 
 }
@@ -111,18 +113,19 @@ double MoveFeature::comp(const std::vector<double> &vals, const std::vector<doub
     
     double distStep = obsVec[0];
     
-    double x1 = obsVec[1 + loc1];
-    double y1 = obsVec[1 + mapSize + loc1];
-    double o1 = obsVec[1 + 2 * mapSize + loc1];
-    double x2 = obsVec[1 + loc2];
-    double y2 = obsVec[1 + mapSize + loc2];
-    double o2 = obsVec[1 + 2 * mapSize + loc2];
+//    double x1 = obsVec[1 + loc1];
+//    double y1 = obsVec[1 + mapSize + loc1];
+//    double o1 = obsVec[1 + 2 * mapSize + loc1];
+//    double x2 = obsVec[1 + loc2];
+//    double y2 = obsVec[1 + mapSize + loc2];
+//    double o2 = obsVec[1 + 2 * mapSize + loc2];
 
 //    double x2Pred = x1 + distStep * cos(o1);
 //    double y2Pred = y1 + distStep * sin(o1);
 //    double error = sqrt((x2Pred - x2) * (x2Pred - x2) + (y2Pred - y2) * (y2Pred - y2));
 
-    double dist = sqrt((x1 - x2)*(x1 - x2) + (y1 - y2)*(y1 - y2));
+//    double dist = sqrt((x1 - x2)*(x1 - x2) + (y1 - y2)*(y1 - y2));
+    double dist = graph->getDist(loc1, loc2);
     double error = dist - distStep;
     
 //    double ret = exp(-error*error / (sigmaDist*sigmaDist));

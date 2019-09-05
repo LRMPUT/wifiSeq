@@ -6,6 +6,7 @@
 #define WIFISEQ_WIFISEQFEATURES_HPP
 
 #include "pgm/Pgm.h"
+#include "Graph.hpp"
 
 class LocFeature : public Feature
 {
@@ -54,7 +55,8 @@ public:
                     const std::vector<std::shared_ptr<RandVar>> &irandVarsOrdered,
                     const std::vector<int> &iobsNums,
                     int imapSize,
-                    double isigmaDist);
+                    double isigmaDist,
+                    std::shared_ptr<Graph> graph);
     
     double comp(const std::vector<double> &vals, const std::vector<double> &obsVec) override;
     
@@ -65,6 +67,7 @@ public:
 private:
     int mapSize;
     double sigmaDist;
+    std::shared_ptr<Graph> graph;
 };
 
 

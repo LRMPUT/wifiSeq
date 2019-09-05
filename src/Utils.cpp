@@ -6,6 +6,41 @@
 #include <algorithm>
 
 #include "Utils.hpp"
+#include "LocationWiFi.hpp"
+
+std::pair<int, int> Utils::mapCoordToGrid(double x, double y){
+    return std::make_pair((x - mapMinX)/mapGrid, (y - mapMinY)/mapGrid);
+};
+
+
+LocationXY Utils::mapGridToCoord(int x, int y){
+    return LocationXY(mapMinX + x * mapGrid, mapMinY + y * mapGrid);
+};
+
+double Utils::orientIdxToOrient(int oIdx){
+    return orientSectorLen * oIdx;
+}
+
+int Utils::orientToOrientIdx(double o){
+    int oIdx = (int)((o + 2 * M_PI + orientSectorLen / 2.0) / orientSectorLen);
+    oIdx = ((oIdx % orientSectors) + orientSectors) % orientSectors;
+    return oIdx;
+}
+
+int Utils::mapGridToVal(int x, int y, int o){
+    return o + orientSectors * x + orientSectors * mapGridSizeX * y;
+}
+
+void Utils::valToMapGrid(double val, int &xIdx, int &yIdx, int &oIdx){
+    int valInt = (int)round(val);
+    oIdx = valInt % orientSectors;
+    valInt /= orientSectors;
+
+    xIdx = valInt % mapGridSizeX;
+    valInt /= mapGridSizeX;
+
+    yIdx = valInt;
+}
 
 double Utils::toPiRange(double o) {
     // (- 2 * M_PI, 2 * M_PI)

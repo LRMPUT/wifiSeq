@@ -19,6 +19,7 @@
 #include "LocationWiFi.hpp"
 #include "WiFiSeqFeatures.hpp"
 #include "Stepometer.hpp"
+#include "Graph.hpp"
 
 
 using namespace std;
@@ -46,39 +47,6 @@ pair<double, int> errorL2(const LocationWiFi &lhs, const LocationWiFi &rhs){
         diff = sqrt(diff/cnt);
     };
     return make_pair(diff, cnt);
-}
-
-pair<int, int> mapCoordToGrid(double x, double y){
-    return make_pair((x - mapMinX)/mapGrid, (y - mapMinY)/mapGrid);
-};
-
-LocationXY mapGridToCoord(int x, int y){
-    return LocationXY(mapMinX + x * mapGrid, mapMinY + y * mapGrid);
-};
-
-double orientIdxToOrient(int oIdx){
-    return orientSectorLen * oIdx;
-}
-
-int orientToOrientIdx(double o){
-    int oIdx = (int)((o + 2 * M_PI + orientSectorLen / 2.0) / orientSectorLen);
-    oIdx = ((oIdx % orientSectors) + orientSectors) % orientSectors;
-    return oIdx;
-}
-
-int mapGridToVal(int x, int y, int o){
-    return o + orientSectors * x + orientSectors * mapGridSizeX * y;
-}
-
-void valToMapGrid(double val, int &xIdx, int &yIdx, int &oIdx){
-    int valInt = (int)round(val);
-    oIdx = valInt % orientSectors;
-    valInt /= orientSectors;
-
-    xIdx = valInt % mapGridSizeX;
-    valInt /= mapGridSizeX;
-
-    yIdx = valInt;
 }
 
 void selectPolygonPixels(const std::vector<cv::Point2i> &polygon,
@@ -158,7 +126,10 @@ cv::Mat readAnnotation(const boost::filesystem::path &annotationFile,
 std::vector<LocationWiFi> readMap(const boost::filesystem::path &dirPath,
                                   cv::Mat &mapImage,
                                   cv::Mat &obstacles,
-                                  double &mapImageScale)
+                                  double &mapImageScale,
+                                  set<int> &forbiddenVals,
+                                  set<int> &allowedVals,
+                                  shared_ptr<Graph> &graph)
 {
     cout << "Reading map" << endl;
     
@@ -234,8 +205,57 @@ std::vector<LocationWiFi> readMap(const boost::filesystem::path &dirPath,
     obstacles = readAnnotation(dirPath / "map.xml",
                                 mapImage.size(),
                                 map<string, int>{make_pair("obstacle", 255)});
-    
-    
+
+
+//    set<int> forbiddenVals;
+//    set<int> allowedVals;
+    {
+//        cout << "obstacles.size() = " << obstacles.size() << endl;
+        for (int mapYIdx = 0; mapYIdx < mapGridSizeY; ++mapYIdx) {
+            for (int mapXIdx = 0; mapXIdx < mapGridSizeX; ++mapXIdx) {
+                LocationXY mapCoord = Utils::mapGridToCoord(mapXIdx, mapYIdx);
+
+                cv::Point2d pt1(mapCoord.x - mapGrid / 2, mapCoord.y - mapGrid / 2);
+                cv::Point2d pt2(mapCoord.x + mapGrid / 2, mapCoord.y + mapGrid / 2);
+                cv::Point2i pt1i = pt1 * mapImageScale;
+                cv::Point2i pt2i = pt2 * mapImageScale;
+                pt1i.x = max(pt1i.x, 0);
+                pt1i.y = max(pt1i.y, 0);
+                pt2i.x = max(pt2i.x, 0);
+                pt2i.y = max(pt2i.y, 0);
+                pt1i.x = min(pt1i.x, obstacles.cols);
+                pt1i.y = min(pt1i.y, obstacles.rows);
+                pt2i.x = min(pt2i.x, obstacles.cols);
+                pt2i.y = min(pt2i.y, obstacles.rows);
+
+                cv::Rect roi = cv::Rect(pt1i, pt2i);
+//                cout << "roi = " << roi << endl;
+                cv::Mat curObstacle = obstacles(roi);
+//                cout << "curObstacle = " << curObstacle << endl;
+                int obstacleCnt = cv::countNonZero(curObstacle);
+
+//                cout << "obstacleCnt = " << obstacleCnt << endl;
+//                cout << "curObstacle.rows * curObstacle.cols / 2 = " << curObstacle.rows * curObstacle.cols / 2 << endl;
+                if(obstacleCnt > curObstacle.rows * curObstacle.cols / 2){
+                    for(int oIdx = 0; oIdx < orientSectors; ++oIdx) {
+                        int val = Utils::mapGridToVal(mapXIdx, mapYIdx, oIdx);
+                        forbiddenVals.insert(val);
+                    }
+                }
+                else{
+                    for(int oIdx = 0; oIdx < orientSectors; ++oIdx) {
+                        int val = Utils::mapGridToVal(mapXIdx, mapYIdx, oIdx);
+                        allowedVals.insert(val);
+                    }
+                }
+            }
+        }
+        cout << "forbiddenVals.size() = " << forbiddenVals.size() << endl;
+        cout << "allowedVals.size() = " << allowedVals.size() << endl;
+    }
+
+    graph = shared_ptr<Graph>(new Graph(allowedVals));
+
     cout << "Map read" << endl;
     
     return mapLocations;
@@ -501,56 +521,56 @@ std::vector<std::vector<double>> locationProb(const LocationWiFi &loc,
 //    int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
     vector<vector<double>> prob(mapGridSizeY, vector<double>(mapGridSizeX, minProb));
     
-    double meanErrorWknn = 0.0;
-    LocationXY locWknn = wknn(database, loc, wknnk, meanErrorWknn);
-    if(meanErrorWknn < 100) {
-        for (int mapYIdx = 0; mapYIdx < prob.size(); ++mapYIdx) {
-            for (int mapXIdx = 0; mapXIdx < prob[mapYIdx].size(); ++mapXIdx) {
-                LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
-
-//                    cout << "mapCoord = (" << mapCoord.x << ", " << mapCoord.y << ")" << endl;
-//                    cout << "databaseLoc.locationXY = (" << databaseLoc.locationXY.x << ", " << databaseLoc.locationXY.y << ")" << endl;
-                double dx = mapCoord.x - locWknn.x;
-                double dy = mapCoord.y - locWknn.y;
-                double expVal = -((dx * dx + dy * dy) / (wifiSigma * wifiSigma));
-                expVal += -meanErrorWknn / (errorSigma * errorSigma);
-
-//                    cout << "expVal = " << expVal << endl;
-                prob[mapYIdx][mapXIdx] += exp(expVal) * probScale;
-            }
-        }
-    }
-    
-//    int nMatchedScans = 0;
-//    for (const LocationWiFi &databaseLoc : database) {
-//        pair<double, int> error = errorL2(loc, databaseLoc);
-//        double sharedPercentA = (double) error.second / loc.wifiScans.size();
-//        double sharedPercentB = (double) error.second / databaseLoc.wifiScans.size();
-//
-//        if (sharedPercentA > sharedPercentThreshold &&
-//            sharedPercentB > sharedPercentThreshold)
-//        {
-////            cout << "matched scan" << endl;
-//            // adding Gaussian kernel placed at databaseLoc and weighted with error
-//            for (int mapYIdx = 0; mapYIdx < prob.size(); ++mapYIdx) {
-//                for (int mapXIdx = 0; mapXIdx < prob[mapYIdx].size(); ++mapXIdx) {
-//                    LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
+//    double meanErrorWknn = 0.0;
+//    LocationXY locWknn = wknn(database, loc, wknnk, meanErrorWknn);
+//    if(meanErrorWknn < 100) {
+//        for (int mapYIdx = 0; mapYIdx < prob.size(); ++mapYIdx) {
+//            for (int mapXIdx = 0; mapXIdx < prob[mapYIdx].size(); ++mapXIdx) {
+//                LocationXY mapCoord = Utils::mapGridToCoord(mapXIdx, mapYIdx);
 //
 ////                    cout << "mapCoord = (" << mapCoord.x << ", " << mapCoord.y << ")" << endl;
 ////                    cout << "databaseLoc.locationXY = (" << databaseLoc.locationXY.x << ", " << databaseLoc.locationXY.y << ")" << endl;
-//                    double dx = mapCoord.x - databaseLoc.locationXY.x;
-//                    double dy = mapCoord.y - databaseLoc.locationXY.y;
-//                    double expVal = -((dx * dx + dy * dy) / (wifiSigma * wifiSigma));
-//                    expVal += -error.first / (errorSigma * errorSigma);
+//                double dx = mapCoord.x - locWknn.x;
+//                double dy = mapCoord.y - locWknn.y;
+//                double expVal = -((dx * dx + dy * dy) / (wifiSigma * wifiSigma));
+//                expVal += -meanErrorWknn / (errorSigma * errorSigma);
 //
 ////                    cout << "expVal = " << expVal << endl;
-//                    prob[mapYIdx][mapXIdx] += exp(expVal) * probScale;
-//                }
+//                prob[mapYIdx][mapXIdx] += exp(expVal) * probScale;
 //            }
-//            ++nMatchedScans;
 //        }
 //    }
-//    cout << "nMatchedScans = " << nMatchedScans << endl;
+    
+    int nMatchedScans = 0;
+    for (const LocationWiFi &databaseLoc : database) {
+        pair<double, int> error = errorL2(loc, databaseLoc);
+        double sharedPercentA = (double) error.second / loc.wifiScans.size();
+        double sharedPercentB = (double) error.second / databaseLoc.wifiScans.size();
+
+        if (sharedPercentA > sharedPercentThreshold &&
+            sharedPercentB > sharedPercentThreshold)
+        {
+//            cout << "matched scan" << endl;
+            // adding Gaussian kernel placed at databaseLoc and weighted with error
+            for (int mapYIdx = 0; mapYIdx < prob.size(); ++mapYIdx) {
+                for (int mapXIdx = 0; mapXIdx < prob[mapYIdx].size(); ++mapXIdx) {
+                    LocationXY mapCoord = Utils::mapGridToCoord(mapXIdx, mapYIdx);
+
+//                    cout << "mapCoord = (" << mapCoord.x << ", " << mapCoord.y << ")" << endl;
+//                    cout << "databaseLoc.locationXY = (" << databaseLoc.locationXY.x << ", " << databaseLoc.locationXY.y << ")" << endl;
+                    double dx = mapCoord.x - databaseLoc.locationXY.x;
+                    double dy = mapCoord.y - databaseLoc.locationXY.y;
+                    double expVal = -((dx * dx + dy * dy) / (wifiSigma * wifiSigma));
+                    expVal += -error.first / (errorSigma * errorSigma);
+
+//                    cout << "expVal = " << expVal << endl;
+                    prob[mapYIdx][mapXIdx] += exp(expVal) * probScale;
+                }
+            }
+            ++nMatchedScans;
+        }
+    }
+    cout << "nMatchedScans = " << nMatchedScans << endl;
     return prob;
 }
 
@@ -577,7 +597,7 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
 //            cout << "val = " << val << endl;
             maxProb = max(val, maxProb);
             
-            LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
+            LocationXY mapCoord = Utils::mapGridToCoord(mapXIdx, mapYIdx);
 
             cv::Point2d pt1(mapCoord.x - mapGrid/2, mapCoord.y - mapGrid/2);
             cv::Point2d pt2(mapCoord.x + mapGrid/2, mapCoord.y + mapGrid/2);
@@ -609,9 +629,9 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
     
     {
         int mapXIdx, mapYIdx, oIdx;
-        valToMapGrid(varVal, mapXIdx, mapYIdx, oIdx);
-        LocationXY loc = mapGridToCoord(mapXIdx, mapYIdx);
-        double orientVal = orientIdxToOrient(oIdx);
+        Utils::valToMapGrid(varVal, mapXIdx, mapYIdx, oIdx);
+        LocationXY loc = Utils::mapGridToCoord(mapXIdx, mapYIdx);
+        double orientVal = Utils::orientIdxToOrient(oIdx);
         cv::Point2d pt(loc.x, loc.y);
         static constexpr double radius = 2.0;
 //        cv::Point2d ptDir(loc.x + radius * cos(orientVal), loc.y + radius * sin(orientVal));
@@ -621,11 +641,11 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
         cv::line(mapVis, pt * mapScale, ptDir * mapScale, cv::Scalar(0, 255, 0), 2);
     }
     
-    {
-        probVal.setTo(cv::Scalar(0.25, 0.25, 0.25));
-        probVis.setTo(cv::Scalar(255, 255, 255));
-//        probVis.setTo(cv::Scalar(0, 255, 0), mapObstacle == 0);
-    }
+//    {
+//        probVal.setTo(cv::Scalar(0.25, 0.25, 0.25));
+//        probVis.setTo(cv::Scalar(255, 255, 255));
+////        probVis.setTo(cv::Scalar(0, 255, 0), mapObstacle == 0);
+//    }
     
     cv::Mat probVisBlended(probVis.clone());
     cv::Mat mapVisBlended(mapVis.clone());
@@ -753,6 +773,8 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
              const std::vector<std::vector<std::vector<double>>> &probs,
              const std::vector<double> &stepDists,
              const std::vector<double> &orientMap,
+             const set<int> &forbiddenVals,
+             const shared_ptr<Graph> &graph,
              std::vector<double> &obsVec,
              std::map<int, int> &locIdxToVarClusterId,
              std::vector<double> &varVals)
@@ -764,45 +786,6 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
     obsVec.clear();
     varVals.clear();
     
-    set<int> forbiddenVals;
-    {
-//        cout << "obstacles.size() = " << obstacles.size() << endl;
-        for (int mapYIdx = 0; mapYIdx < probs[0].size(); ++mapYIdx) {
-            for (int mapXIdx = 0; mapXIdx < probs[0][mapYIdx].size(); ++mapXIdx) {
-                LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
-                
-                cv::Point2d pt1(mapCoord.x - mapGrid / 2, mapCoord.y - mapGrid / 2);
-                cv::Point2d pt2(mapCoord.x + mapGrid / 2, mapCoord.y + mapGrid / 2);
-                cv::Point2i pt1i = pt1 * mapScale;
-                cv::Point2i pt2i = pt2 * mapScale;
-                pt1i.x = max(pt1i.x, 0);
-                pt1i.y = max(pt1i.y, 0);
-                pt2i.x = max(pt2i.x, 0);
-                pt2i.y = max(pt2i.y, 0);
-                pt1i.x = min(pt1i.x, obstacles.cols);
-                pt1i.y = min(pt1i.y, obstacles.rows);
-                pt2i.x = min(pt2i.x, obstacles.cols);
-                pt2i.y = min(pt2i.y, obstacles.rows);
-                
-                cv::Rect roi = cv::Rect(pt1i, pt2i);
-//                cout << "roi = " << roi << endl;
-                cv::Mat curObstacle = obstacles(roi);
-//                cout << "curObstacle = " << curObstacle << endl;
-                int obstacleCnt = cv::countNonZero(curObstacle);
-                
-//                cout << "obstacleCnt = " << obstacleCnt << endl;
-//                cout << "curObstacle.rows * curObstacle.cols / 2 = " << curObstacle.rows * curObstacle.cols / 2 << endl;
-                if(obstacleCnt > curObstacle.rows * curObstacle.cols / 2){
-                    for(int oIdx = 0; oIdx < orientSectors; ++oIdx) {
-                        int val = mapGridToVal(mapXIdx, mapYIdx, oIdx);
-                        forbiddenVals.insert(val);
-                    }
-                }
-            }
-        }
-//        cout << "forbiddenVals.size() = " << forbiddenVals.size() << endl;
-    }
-    
     // observation vector
     // location coordinates
     vector<double> xCoords, yCoords, oCoords;
@@ -810,9 +793,9 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
     int mapSize = 0;
     for (int mapYIdx = 0; mapYIdx < probs[0].size(); ++mapYIdx) {
         for (int mapXIdx = 0; mapXIdx < probs[0][mapYIdx].size(); ++mapXIdx) {
-            LocationXY mapCoord = mapGridToCoord(mapXIdx, mapYIdx);
+            LocationXY mapCoord = Utils::mapGridToCoord(mapXIdx, mapYIdx);
             for(int oIdx = 0; oIdx < orientSectors; ++oIdx) {
-                double curOrient = orientIdxToOrient(oIdx);
+                double curOrient = Utils::orientIdxToOrient(oIdx);
 
                 xCoords.push_back(mapCoord.x);
                 yCoords.push_back(mapCoord.y);
@@ -847,7 +830,7 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
 
     int obsVecStartOrient = obsVec.size();
     for(int oIdx = 0; oIdx < orientSectors; ++oIdx) {
-        double curOrient = orientIdxToOrient(oIdx);
+        double curOrient = Utils::orientIdxToOrient(oIdx);
         obsVec.push_back(curOrient);
     }
 
@@ -875,7 +858,7 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
             double dx = nextLocX - locX;
             double dy = nextLocY - locY;
             double orient = atan2(dy, dx);
-            locOIdx = orientToOrientIdx(orient);
+            locOIdx = Utils::orientToOrientIdx(orient);
 
 //            {
 //                double curDist = stepDists[i + 1];
@@ -896,8 +879,8 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
             prevLocOIdx = locOIdx;
         }
 
-        pair<int, int> mapIdx = mapCoordToGrid(locX, locY);
-        double varVal = mapGridToVal(mapIdx.first, mapIdx.second, locOIdx);
+        pair<int, int> mapIdx = Utils::mapCoordToGrid(locX, locY);
+        double varVal = Utils::mapGridToVal(mapIdx.first, mapIdx.second, locOIdx);
         double closestDist = std::numeric_limits<double>::max();
         int closestXIdx = mapIdx.first;
         int closestYIdx = mapIdx.second;
@@ -907,17 +890,17 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
         for (int mapYIdx = 0; mapYIdx < probs[i].size(); ++mapYIdx) {
             for (int mapXIdx = 0; mapXIdx < probs[i][mapYIdx].size(); ++mapXIdx) {
                 // check any orientation
-                int valCheck = mapGridToVal(mapXIdx, mapYIdx, 0);
+                int valCheck = Utils::mapGridToVal(mapXIdx, mapYIdx, 0);
 
                 bool validLoc = (probs[i][mapYIdx][mapXIdx] >= curProbThresh) && (forbiddenVals.count(valCheck) == 0);
                 for(int oIdx = 0; oIdx < orientSectors; ++oIdx) {
                     if (validLoc){
-                        int val = mapGridToVal(mapXIdx, mapYIdx, oIdx);
+                        int val = Utils::mapGridToVal(mapXIdx, mapYIdx, oIdx);
                         rvVals.push_back(val);
                     }
                 }
                 if (validLoc){
-                    LocationXY loc = mapGridToCoord(mapXIdx, mapYIdx);
+                    LocationXY loc = Utils::mapGridToCoord(mapXIdx, mapYIdx);
                     double dist = sqrt((loc.x - locX) * (loc.x - locX) + (loc.y - locY) * (loc.y - locY));
                     if (dist < closestDist) {
                         closestDist = dist;
@@ -933,7 +916,7 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
             cout << "Warning - varVal not in rvVals, substituting with the closest" << endl;
             cout << "Closest distance = " << closestDist << endl;
             
-            varVal = mapGridToVal(closestXIdx, closestYIdx, locOIdx);
+            varVal = Utils::mapGridToVal(closestXIdx, closestYIdx, locOIdx);
         }
         varVals.push_back(varVal);
         
@@ -1019,7 +1002,8 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
                                                     vector<shared_ptr<RandVar>>{randVars[i-1], randVars[i]},
                                                     curObsVecIdxs,
                                                     mapSize,
-                                                    distSigma));
+                                                    distSigma,
+                                                    graph));
 
 //        {
 //            vector<double> curObsVec;
@@ -1127,7 +1111,7 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
     vector<shared_ptr<Cluster>> moveFeatClusters;
     for(int i = 1; i < probs.size(); ++i){
         shared_ptr<Cluster> curCluster(new Cluster(nextClusterId++,
-                                                   vector<shared_ptr<Feature>>{moveFeats[i - 1], orientMoveFeats[i - 1]},
+                                                   vector<shared_ptr<Feature>>{moveFeats[i - 1]/*, orientMoveFeats[i - 1]*/},
                                                    vector<shared_ptr<RandVar>>{randVars[i - 1], randVars[i]}));
     
         moveFeatClusters.push_back(curCluster);
@@ -1171,8 +1155,13 @@ Pgm buildPgm(const std::vector<LocationWiFi> &wifiLocations,
 //    pgm.params() = vector<double>{1.64752, 21.8728};
 //    pgm.params() = vector<double>{1.0, 1.0};
 
-    pgm.params() = vector<double>{2.22835, 3.36533, 0.885725};
+//    pgm.params() = vector<double>{2.22835, 3.36533, 0.885725};
 //    pgm.params() = vector<double>{2.60168, 3.39544, -2.56049e-05};
+
+    // thresh PI / 2
+//    pgm.params() = vector<double>{3.30005, 3.44762, 0.900764};
+//    pgm.params() = vector<double>{2.31656, 3.45171, 0.844887};
+    pgm.params() = vector<double>{3.8518, 3.47027, 0.0277802};
 
     return pgm;
 }
@@ -1210,9 +1199,9 @@ vector<LocationXY> inferLocations(int nloc,
         int curLoc = curVals.front();
         
         int mapXIdx, mapYIdx, oIdx;
-        valToMapGrid(curLoc, mapXIdx, mapYIdx, oIdx);
+        Utils::valToMapGrid(curLoc, mapXIdx, mapYIdx, oIdx);
         
-        LocationXY curLocXY = mapGridToCoord(mapXIdx, mapYIdx);
+        LocationXY curLocXY = Utils::mapGridToCoord(mapXIdx, mapYIdx);
         
         retLoc.push_back(curLocXY);
     }
@@ -1273,7 +1262,16 @@ int main() {
         cv::Mat mapImage;
         cv::Mat mapObstacles;
         double mapScale;
-        vector<LocationWiFi> mapLocations = readMap(mapDirPath, mapImage, mapObstacles, mapScale);
+        set<int> forbiddenVals;
+        set<int> allowedVals;
+        shared_ptr<Graph> graph;
+        vector<LocationWiFi> mapLocations = readMap(mapDirPath,
+                                                mapImage,
+                                                mapObstacles,
+                                                mapScale,
+                                                forbiddenVals,
+                                                allowedVals,
+                                                graph);
         
 //        vector<boost::filesystem::path> trajDirPaths{"../res/Trajectories/traj1",
 //                                                     "../res/Trajectories/traj2",
@@ -1350,6 +1348,8 @@ int main() {
                                curProbs,
                                curStepDists,
                                curOrients,
+                               forbiddenVals,
+                               graph,
                                curObsVec,
                                curLocIdxToRandVarClusterId,
                                curVarVals);
@@ -1397,6 +1397,8 @@ int main() {
                                                            curStepDists.begin() + i + 1),
                                             vector<double>(curOrients.begin() + i - seqLen + 1,
                                                            curOrients.begin() + i + 1),
+                                            forbiddenVals,
+                                            graph,
                                             iObsVec,
                                             iLocIdxToRandVarClusterId,
                                             iVarVals);

@@ -6,6 +6,7 @@
 #define WIFISEQ_UTILS_HPP
 
 #include <vector>
+#include "LocationWiFi.hpp"
 
 static constexpr int ssThreshold = -100;
 static constexpr double sharedPercentThreshold = 0.6;
@@ -37,7 +38,7 @@ static constexpr double minProb = 0.01;
 static constexpr double probRatio = 2.0;
 
 // prob by wknn
-static constexpr double probScale = 1.0;
+static constexpr double probScale = 0.2;
 // prob by MoG
 //static constexpr double probScale = 1.0/5.0;
 
@@ -49,12 +50,26 @@ static constexpr int wknnk = 6;
 
 class Utils {
 public:
+
+
     static double toPiRange(double o);
 
     static double angDiff(double o1, double o2);
 
     static double meanOrient(const std::vector<double>::const_iterator &beg,
                              const std::vector<double>::const_iterator &end);
+
+    static std::pair<int, int> mapCoordToGrid(double x, double y);
+
+    static LocationXY mapGridToCoord(int x, int y);
+
+    static double orientIdxToOrient(int oIdx);
+
+    static int mapGridToVal(int x, int y, int o);
+
+    static int orientToOrientIdx(double o);
+
+    static void valToMapGrid(double val, int &xIdx, int &yIdx, int &oIdx);
 };
 
 
