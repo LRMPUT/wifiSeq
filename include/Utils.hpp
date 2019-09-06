@@ -38,9 +38,9 @@ static constexpr double minProb = 0.01;
 static constexpr double probRatio = 2.0;
 
 // prob by wknn
-static constexpr double probScale = 0.2;
+static constexpr double probScale = 1.0;
 // prob by MoG
-//static constexpr double probScale = 1.0/5.0;
+//static constexpr double probScale = 0.2;
 
 static constexpr double probVisScale = 4;
 
