@@ -37,6 +37,10 @@ static constexpr double minProb = 0.01;
 
 static constexpr double probRatio = 2.0;
 
+// change probScale when changing this parameter
+//    static constexpr int useWknn = false;
+static constexpr int useWknn = true;
+
 // prob by wknn
 static constexpr double probScale = 1.0;
 // prob by MoG

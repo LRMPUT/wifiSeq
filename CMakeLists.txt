@@ -31,6 +31,8 @@ set(wifiSeq_SRC
         src/WiFiSeqFeatures.cpp
         src/Stepometer.cpp
         src/Graph.cpp
+        src/fastable/FastABLE.cpp
+        src/ldb/ldb.cpp
         src/pgm/Inference.cpp
         src/pgm/ParamEst.cpp
         src/pgm/ParamEstSGD.cpp

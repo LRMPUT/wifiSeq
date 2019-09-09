@@ -8,12 +8,15 @@
 #include <string>
 #include <vector>
 
+#include <opencv2/opencv.hpp>
+
 struct LocationXY{
     LocationXY() {}
     
-    LocationXY(double ix, double iy) : x(ix), y(iy) {}
+    LocationXY(double ix, double iy, int iid) : x(ix), y(iy), id(iid) {}
     
     double x, y;
+    int id;
 };
 
 struct ScanResult{
@@ -35,12 +38,38 @@ struct ScanResult{
 class LocationWiFi {
 public:
     LocationWiFi() {}
-    
+
+    LocationWiFi(uint64_t timestamp, const LocationXY &locationXy, const std::vector<ScanResult> &wifiScans)
+            : timestamp(timestamp), locationXY(locationXy), wifiScans(wifiScans) {}
+
     uint64_t timestamp;
     LocationXY locationXY;
     std::vector<ScanResult> wifiScans;
 private:
 
+};
+
+class LocationImage {
+public:
+    LocationImage() {}
+
+    uint64_t timestamp;
+    LocationXY locationXY;
+    int segmentId;
+    cv::Mat image;
+};
+
+class LocationGeneral {
+public:
+    LocationGeneral() {}
+
+    uint64_t timestamp;
+    LocationXY locationXY;
+
+    std::vector<ScanResult> wifiScans;
+
+    int segmentId;
+    cv::Mat image;
 };
 
 class CompResWiFi{
