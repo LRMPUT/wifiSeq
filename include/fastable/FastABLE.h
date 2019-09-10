@@ -49,7 +49,7 @@ public:
      * Adds new image for recognition
      * @param image
      */
-    LocationXY addNewTestingImage(cv::Mat image, LocationXY currentPose);
+//    LocationXY addNewTestingImage(cv::Mat image, LocationXY currentPose);
 
 
     ImageRecognitionResult addNewTestingImage(cv::Mat image);
@@ -119,7 +119,7 @@ private:
                                                                  const std::vector<cv::Mat> &testDescriptors);
 
 
-    LocationXY bestLocationGuess(ImageRecognitionResult imageRecognitionResult, LocationXY currentPose);
+//    LocationXY bestLocationGuess(ImageRecognitionResult imageRecognitionResult, LocationXY currentPose);
 
 
     // Parameters

@@ -14,7 +14,7 @@ std::pair<int, int> Utils::mapCoordToGrid(double x, double y){
 
 
 LocationXY Utils::mapGridToCoord(int x, int y){
-    return LocationXY(mapMinX + x * mapGrid, mapMinY + y * mapGrid);
+    return LocationXY(mapMinX + x * mapGrid, mapMinY + y * mapGrid, -1);
 };
 
 double Utils::orientIdxToOrient(int oIdx){

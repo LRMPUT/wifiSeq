@@ -25,7 +25,8 @@ static constexpr int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
 static constexpr int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
 
 static constexpr double wifiSigma = 8.0;
-static constexpr double errorSigma = 2;
+static constexpr double errorWifiSigma = 2;
+static constexpr double errorImageSigma = 0.5;
 static constexpr double distSigma = 2.0;
 static constexpr double orientSigma = 0.8;
 

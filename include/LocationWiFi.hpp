@@ -35,9 +35,27 @@ struct ScanResult{
     uint64_t localTimestamp;
 };
 
+class LocationGeneral {
+public:
+    LocationGeneral() {}
+
+    uint64_t timestamp;
+    LocationXY locationXY;
+
+    std::vector<ScanResult> wifiScans;
+
+    int segmentId;
+    cv::Mat image;
+};
+
 class LocationWiFi {
 public:
     LocationWiFi() {}
+
+    explicit LocationWiFi(const LocationGeneral &lg)
+            : timestamp(lg.timestamp), locationXY(lg.locationXY), wifiScans(lg.wifiScans) {
+
+    }
 
     LocationWiFi(uint64_t timestamp, const LocationXY &locationXy, const std::vector<ScanResult> &wifiScans)
             : timestamp(timestamp), locationXY(locationXy), wifiScans(wifiScans) {}
@@ -53,24 +71,17 @@ class LocationImage {
 public:
     LocationImage() {}
 
+    explicit LocationImage(const LocationGeneral &lg)
+            : timestamp(lg.timestamp), locationXY(lg.locationXY), segmentId(lg.segmentId), image(lg.image.clone()) {
+    }
+
     uint64_t timestamp;
     LocationXY locationXY;
     int segmentId;
     cv::Mat image;
 };
 
-class LocationGeneral {
-public:
-    LocationGeneral() {}
 
-    uint64_t timestamp;
-    LocationXY locationXY;
-
-    std::vector<ScanResult> wifiScans;
-
-    int segmentId;
-    cv::Mat image;
-};
 
 class CompResWiFi{
 public:
