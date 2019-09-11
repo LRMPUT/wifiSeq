@@ -13,6 +13,9 @@ using namespace std;
 Graph::Graph(const std::set<int> &allowedVals) {
     numNodes = allowedVals.size();
     dists = vector<vector<double>>(numNodes, vector<double>(numNodes, std::numeric_limits<double>::max()));
+    for(int n = 0; n < numNodes; ++n){
+        dists[n][n] = 0.0;
+    }
 
     int idx = 0;
     for(auto it = allowedVals.begin(); it != allowedVals.end(); ++it){

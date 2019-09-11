@@ -6,7 +6,7 @@
 #include <algorithm>
 
 #include "Utils.hpp"
-#include "LocationWiFi.hpp"
+#include "LocationWifi.hpp"
 
 std::pair<int, int> Utils::mapCoordToGrid(double x, double y){
     return std::make_pair((x - mapMinX)/mapGrid, (y - mapMinY)/mapGrid);

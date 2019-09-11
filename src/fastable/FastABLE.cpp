@@ -184,7 +184,7 @@ std::vector<unsigned long long> FastABLE::matchWindowToSingleSequence(int imageC
     std::vector<unsigned long long> nextPreviousDistances;
 
     for (int trainingShift = 0;
-         trainingShift < trainingSize - settings.compareLength - 1;
+         trainingShift < trainingSize - settings.compareLength + 1;
          trainingShift++) {
 
 
@@ -293,7 +293,7 @@ ImageRecognitionResult FastABLE::performRecognition(const std::vector<cv::Mat> &
 
                 double eps = 1e-6;
                 imageRecognitionResult.matchingWeights.push_back((double)resultForSegment[j] / this->mapImageSegThresholds[i]);
-                imageRecognitionResult.matchingLocations.push_back(mapImageSegmentLocations[i][j]);
+                imageRecognitionResult.matchingLocations.push_back(mapImageSegmentLocations[i][j + settings.compareLength - 1]);
             }
         }
     }

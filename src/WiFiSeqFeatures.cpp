@@ -118,8 +118,13 @@ double OrientMoveFeature::comp(const std::vector<double> &vals, const std::vecto
 
     double dx = x2 - x1;
     double dy = y2 - y1;
-    double orient = atan2(dy, dx);
-    double error = Utils::angDiff(orient, orientMeas);
+
+    double error = 0.0;
+    // if there is some movement
+    if(sqrt(dx*dx + dy*dy) > 0.5) {
+        double orient = atan2(dy, dx);
+        error = Utils::angDiff(orient, orientMeas);
+    }
 
     // berHu loss function
 //    double ret = 0.0;

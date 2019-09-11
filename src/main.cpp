@@ -16,7 +16,7 @@
 #include "pgm/ParamEst.h"
 
 #include "Utils.hpp"
-#include "LocationWiFi.hpp"
+#include "LocationWifi.hpp"
 #include "WiFiSeqFeatures.hpp"
 #include "Stepometer.hpp"
 #include "Graph.hpp"
@@ -26,7 +26,7 @@
 using namespace std;
 
 
-pair<double, int> errorL2(const LocationWiFi &lhs, const LocationWiFi &rhs){
+pair<double, int> errorL2(const LocationWifi &lhs, const LocationWifi &rhs){
     int cnt = 0;
     double diff = 0.0;
 
@@ -118,8 +118,8 @@ cv::Mat readAnnotation(const boost::filesystem::path &annotationFile,
 
 
 
-LocationXY wknn(const std::vector<LocationWiFi> &database,
-                const LocationWiFi &scan,
+LocationXY wknn(const std::vector<LocationWifi> &database,
+                const LocationWifi &scan,
                 int k,
                 double& meanError)
 {
@@ -166,8 +166,8 @@ LocationXY wknn(const std::vector<LocationWiFi> &database,
 
 
 
-std::vector<std::vector<double>> locationWifiProb(const LocationWiFi &loc,
-                                                  const std::vector<LocationWiFi> &database) {
+std::vector<std::vector<double>> locationWifiProb(const LocationWifi &loc,
+                                                  const std::vector<LocationWifi> &database) {
 
     vector<vector<double>> prob(mapGridSizeY, vector<double>(mapGridSizeX, minProb));
 
@@ -191,7 +191,7 @@ std::vector<std::vector<double>> locationWifiProb(const LocationWiFi &loc,
     }
     else {
         int nMatchedScans = 0;
-        for (const LocationWiFi &databaseLoc : database) {
+        for (const LocationWifi &databaseLoc : database) {
             pair<double, int> error = errorL2(loc, databaseLoc);
             double sharedPercentA = (double) error.second / loc.wifiScans.size();
             double sharedPercentB = (double) error.second / databaseLoc.wifiScans.size();
@@ -225,7 +225,12 @@ std::vector<std::vector<double>> locationImageProb(const LocationGeneral &loc,
     vector<vector<double>> prob(mapGridSizeY, vector<double>(mapGridSizeX, minProb));
     vector<pair<double, int>> weightIdx;
     for(int l = 0; l < imgRecogRes.matchingLocations.size(); ++l) {
-        double curW = exp(-imgRecogRes.matchingWeights[l] / (errorImageSigma * errorImageSigma));
+        static constexpr double minVal = 0.2;
+        static constexpr double maxVal = 1.0;
+        double error = (imgRecogRes.matchingWeights[l] - minVal) / (maxVal - minVal);
+        error = min(max(error, 0.0), 1.0);
+
+        double curW = exp(-error / (errorImageSigma * errorImageSigma));
         weightIdx.emplace_back(curW, l);
     }
     sort(weightIdx.begin(), weightIdx.end(), std::greater<>());
@@ -233,11 +238,13 @@ std::vector<std::vector<double>> locationImageProb(const LocationGeneral &loc,
     if(!weightIdx.empty()){
         maxW = weightIdx.front().first;
     }
-    cout << "maxW = " << maxW << endl;
-    for(int l = 0; l < std::min((int)weightIdx.size(), 10); ++l) {
+//    cout << "maxW = " << maxW << endl;
+    for(int l = 0; l < (int)weightIdx.size(); ++l) {
         double curW = weightIdx[l].first;
         int curIdx = weightIdx[l].second;
-        if(curW > maxW / 2.0) {
+
+//        if(curW > maxW / 2.0) {
+        {
             // adding Gaussian kernel placed at databaseLoc and weighted with error
             for (int mapYIdx = 0; mapYIdx < prob.size(); ++mapYIdx) {
                 for (int mapXIdx = 0; mapXIdx < prob[mapYIdx].size(); ++mapXIdx) {
@@ -256,7 +263,7 @@ std::vector<std::vector<double>> locationImageProb(const LocationGeneral &loc,
 }
 
 void readMap(const boost::filesystem::path &dirPath,
-             std::vector<LocationWiFi> &wifiLocations,
+             std::vector<LocationWifi> &wifiLocations,
              std::vector<LocationImage> &imageLocations,
              cv::Mat &mapImage,
              cv::Mat &obstacles,
@@ -275,7 +282,7 @@ void readMap(const boost::filesystem::path &dirPath,
             cout << "Error! Could not open " << (dirPath / "wifi.map").c_str() << " file" << endl;
         }
         while (!wifiFile.eof() && !wifiFile.fail()) {
-            LocationWiFi curLoc;
+            LocationWifi curLoc;
 
             uint64_t timestamp = 0;
             int locId = 0;
@@ -419,7 +426,7 @@ void readMap(const boost::filesystem::path &dirPath,
 }
 
 void readTrajectory(const boost::filesystem::path &dirPath,
-                    const vector<LocationWiFi> &mapWifiLocations,
+                    const vector<LocationWifi> &mapWifiLocations,
                     FastABLE &fastable,
                     std::vector<LocationGeneral> &locations,
                     vector<vector<vector<double>>> &probs,
@@ -465,7 +472,7 @@ void readTrajectory(const boost::filesystem::path &dirPath,
                         }
                     }
 
-                    vector<vector<double>> curProb = locationWifiProb(LocationWiFi(curLoc.timestamp,
+                    vector<vector<double>> curProb = locationWifiProb(LocationWifi(curLoc.timestamp,
                                                                                    curLoc.locationXY,
                                                                                    curLoc.wifiScans),
                                                                       mapWifiLocations);
@@ -490,7 +497,11 @@ void readTrajectory(const boost::filesystem::path &dirPath,
             cout << "read " << locations.size() << " WiFi locations" << endl;
         }
 
+        vector<ImageRecognitionResult> imgRecogRes(locations.size());
         {
+            uint64_t prevTimestamp = 0;
+            int cnt = 0;
+
             ifstream imageFile((dirPath / "imgs/images.map").c_str());
             if (!imageFile.is_open()) {
                 cout << "Error! Could not open " << (dirPath / "imgs/images.map").c_str() << " file" << endl;
@@ -513,17 +524,22 @@ void readTrajectory(const boost::filesystem::path &dirPath,
                     // FastABLE recognition
                     ImageRecognitionResult curRes = fastable.addNewTestingImage(curLoc.image);
 
-                    if(curRes.matchingLocations.size() > 0) {
+                    if(curRes.matchingLocations.size() > 0 && (timestamp - prevTimestamp) / 1.0e9 > 1.0) {
                         vector<vector<double>> curProb = locationImageProb(curLoc,
                                                                           curRes);
 
                         locIdToIdx[locId] = locations.size();
                         locations.push_back(curLoc);
                         probs.push_back(curProb);
+
+                        imgRecogRes.push_back(curRes);
+
+                        ++cnt;
+                        prevTimestamp = timestamp;
                     }
                 }
             }
-            cout << "read " << locations.size() << " image locations" << endl;
+            cout << "read " << cnt << " image locations" << endl;
         }
 
         ifstream positionsFile((dirPath / "positions.map").c_str());
@@ -538,29 +554,39 @@ void readTrajectory(const boost::filesystem::path &dirPath,
                 if (locIdToIdx.count(id) > 0) {
                     int idx = locIdToIdx[id];
                     locations[idx].locationXY = LocationXY(x, y, id);
+
+                    if(locations[idx].wifiScans.empty()){
+                        cout << endl << "id = " << id << endl;
+                        for(int i = 0; i < imgRecogRes[idx].matchingLocations.size(); ++i){
+                            double dx = locations[idx].locationXY.x - imgRecogRes[idx].matchingLocations[i].x;
+                            double dy = locations[idx].locationXY.y - imgRecogRes[idx].matchingLocations[i].y;
+
+                            cout << "w = " << imgRecogRes[idx].matchingWeights[i] << ", dist = " << sqrt(dx*dx + dy*dy) << endl;
+                        }
+                    }
                 }
             }
         }
 
     }
 
-//    // sort according to timestamp
-//    {
-//        vector<pair<uint64_t, int>> tsIdx;
-//        for(int l = 0; l < locations.size(); ++l){
-//            tsIdx.emplace_back(locations[l].timestamp, l);
-//        }
-//        sort(tsIdx.begin(), tsIdx.end());
-//
-//        std::vector<LocationGeneral> newLocations;
-//        vector<vector<vector<double>>> newProbs;
-//        for(const auto &loc : tsIdx){
-//            newLocations.push_back(locations[loc.second]);
-//            newProbs.push_back(probs[loc.second]);
-//        }
-//        locations = std::move(newLocations);
-//        probs = std::move(newProbs);
-//    }
+    // sort according to timestamp
+    {
+        vector<pair<uint64_t, int>> tsIdx;
+        for(int l = 0; l < locations.size(); ++l){
+            tsIdx.emplace_back(locations[l].timestamp, l);
+        }
+        sort(tsIdx.begin(), tsIdx.end());
+
+        std::vector<LocationGeneral> newLocations;
+        vector<vector<vector<double>>> newProbs;
+        for(const auto &loc : tsIdx){
+            newLocations.push_back(locations[loc.second]);
+            newProbs.push_back(probs[loc.second]);
+        }
+        locations = std::move(newLocations);
+        probs = std::move(newProbs);
+    }
 
     // distances from stepometer
     stepDists.clear();
@@ -697,7 +723,7 @@ void readTrajectory(const boost::filesystem::path &dirPath,
     cout << "Trajectory read" << endl;
 }
 
-void visualizeMapProb(const std::vector<LocationWiFi> &database,
+void visualizeMapProb(const std::vector<LocationWifi> &database,
                       const std::vector<std::vector<double>> &prob,
                       const double &orient,
                       const double &varVal,
@@ -778,7 +804,7 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
         cv::circle(vis, pt * mapScale, radius * mapScale, color, 4);
         cv::line(vis, pt * mapScale, ptDir * mapScale, color, 4);
     }
-//    for(const LocationWiFi &curLoc : database){
+//    for(const LocationWifi &curLoc : database){
 //        cv::Point2d pt(curLoc.locationXY.x, curLoc.locationXY.y);
 //        cv::circle(vis, pt * mapScale, 8, cv::Scalar(0.1840 * 255, 0.0780 * 255, 0.6350 * 255), CV_FILLED);
 //    }
@@ -788,13 +814,13 @@ void visualizeMapProb(const std::vector<LocationWiFi> &database,
 
     cv::imshow("map", visScaled);
     
-//    cv::waitKey(100);
-    if((cv::waitKey() & 0xff) == 's'){
-        cv::imwrite("../log/prob.png", vis);
-    }
+    cv::waitKey(100);
+//    if((cv::waitKey() & 0xff) == 's'){
+//        cv::imwrite("../log/prob.png", vis);
+//    }
 }
 
-void visualizeMapInfer(const std::vector<LocationWiFi> &database,
+void visualizeMapInfer(const std::vector<LocationWifi> &database,
                        const std::vector<LocationGeneral> &trajLocations,
                        const std::vector<LocationXY> &inferLocations,
                        const std::vector<LocationXY> &compLocations,
@@ -804,10 +830,11 @@ void visualizeMapInfer(const std::vector<LocationWiFi> &database,
                        bool save = false)
 {
     cv::Mat mapVis = mapImage.clone();
-    for(const LocationWiFi &curLoc : database){
-        cv::Point2d pt(curLoc.locationXY.x, curLoc.locationXY.y);
+//    for(const LocationWifi &curLoc : database){
+//        cv::Point2d pt(curLoc.locationXY.x, curLoc.locationXY.y);
 //        cv::circle(mapVis, pt * mapScale, 5, cv::Scalar(0, 0, 255), CV_FILLED);
-    }
+//    }
+
 //    cv::Mat probVal(mapImage.rows, mapImage.cols, CV_32FC1, cv::Scalar(0));
 //    cv::Mat probVis(mapImage.rows, mapImage.cols, CV_8UC3, cv::Scalar(0));
 //    double maxVal = 0.0;
@@ -835,61 +862,70 @@ void visualizeMapInfer(const std::vector<LocationWiFi> &database,
     
     static constexpr double radius = 8;
     static constexpr double thickness = 4;
+
+    for(int i = 0; i < inferLocations.size(); ++i){
+        static const cv::Scalar color(0.7410 * 255, 0.4470 * 255, 0.0 * 255);
+
+        const LocationXY &infLoc = inferLocations[i];
+        cv::Point2d pt(infLoc.x, infLoc.y);
+        if(trajLocations[i].wifiScans.empty()){
+            cv::circle(mapVis, pt * mapScale, radius, color, 2);
+        }
+        else {
+            cv::circle(mapVis, pt * mapScale, radius, color, CV_FILLED);
+        }
+
+//            cv::putText(mapVis,
+//                        to_string(i),
+//                        pt * mapScale,
+//                        cv::FONT_HERSHEY_PLAIN,
+//                        1,
+//                        cv::Scalar(0, 0, 0));
+        if (i > 0) {
+            const LocationXY &prevInfLoc = inferLocations[i - 1];
+            cv::Point2d prevPt(prevInfLoc.x, prevInfLoc.y);
+
+            cv::line(mapVis, prevPt * mapScale, pt * mapScale, color, thickness);
+        }
+    }
+    for(int i = 0; i < compLocations.size(); ++i){
+        static const cv::Scalar color(0.0980 * 255, 0.3250 * 255, 0.8500 * 255);
+
+        const LocationXY &compLoc = compLocations[i];
+        cv::Point2d pt(compLoc.x, compLoc.y);
+        cv::circle(mapVis, pt * mapScale, radius, color, CV_FILLED);
+
+//            cv::putText(mapVis,
+//                        to_string(i),
+//                        pt * mapScale,
+//                        cv::FONT_HERSHEY_PLAIN,
+//                        1,
+//                        cv::Scalar(0, 0, 0));
+        if (i > 0) {
+            const LocationXY &prevCompLoc = compLocations[i - 1];
+            cv::Point2d prevPt(prevCompLoc.x, prevCompLoc.y);
+
+            cv::line(mapVis, prevPt * mapScale, pt * mapScale, color, thickness);
+        }
+    }
+
     for(int i = 0; i < trajLocations.size(); ++i){
-        {
-            static const cv::Scalar color(0.7410 * 255, 0.4470 * 255, 0.0 * 255);
+        static const cv::Scalar color(0.1250 * 255, 0.6940 * 255, 0.9290 * 255);
 
-            const LocationXY &infLoc = inferLocations[i];
-            cv::Point2d pt(infLoc.x, infLoc.y);
-            cv::circle(mapVis, pt * mapScale, radius, color, CV_FILLED);
-        
-//            cv::putText(mapVis,
-//                        to_string(i),
-//                        pt * mapScale,
-//                        cv::FONT_HERSHEY_PLAIN,
-//                        1,
-//                        cv::Scalar(0, 0, 0));
-            if (i > 0) {
-                const LocationXY &prevInfLoc = inferLocations[i - 1];
-                cv::Point2d prevPt(prevInfLoc.x, prevInfLoc.y);
-            
-                cv::line(mapVis, prevPt * mapScale, pt * mapScale, color, thickness);
-            }
+        const LocationXY &gtLoc = trajLocations[i].locationXY;
+        cv::Point2d pt(gtLoc.x, gtLoc.y);
+        if(trajLocations[i].wifiScans.empty()){
+            cv::circle(mapVis, pt * mapScale, radius, color, 2);
         }
-        {
-            static const cv::Scalar color(0.0980 * 255, 0.3250 * 255, 0.8500 * 255);
-
-            const LocationXY &compLoc = compLocations[i];
-            cv::Point2d pt(compLoc.x, compLoc.y);
+        else {
             cv::circle(mapVis, pt * mapScale, radius, color, CV_FILLED);
-    
-//            cv::putText(mapVis,
-//                        to_string(i),
-//                        pt * mapScale,
-//                        cv::FONT_HERSHEY_PLAIN,
-//                        1,
-//                        cv::Scalar(0, 0, 0));
-            if (i > 0) {
-                const LocationXY &prevCompLoc = compLocations[i - 1];
-                cv::Point2d prevPt(prevCompLoc.x, prevCompLoc.y);
-        
-                cv::line(mapVis, prevPt * mapScale, pt * mapScale, color, thickness);
-            }
         }
-        
-        {
-            static const cv::Scalar color(0.1250 * 255, 0.6940 * 255, 0.9290 * 255);
 
-            const LocationXY &gtLoc = trajLocations[i].locationXY;
-            cv::Point2d gtPt(gtLoc.x, gtLoc.y);
-            cv::circle(mapVis, gtPt * mapScale, radius, color, CV_FILLED);
-    
-            if (i > 0) {
-                const LocationXY &prevGtLoc = trajLocations[i - 1].locationXY;
-                cv::Point2d prevGtPt(prevGtLoc.x, prevGtLoc.y);
-        
-                cv::line(mapVis, prevGtPt * mapScale, gtPt * mapScale, color, thickness);
-            }
+        if (i > 0) {
+            const LocationXY &prevGtLoc = trajLocations[i - 1].locationXY;
+            cv::Point2d prevGtPt(prevGtLoc.x, prevGtLoc.y);
+
+            cv::line(mapVis, prevGtPt * mapScale, pt * mapScale, color, thickness);
         }
     }
 
@@ -916,7 +952,7 @@ void visualizeMapInfer(const std::vector<LocationWiFi> &database,
     
     if(stop){
         cv::waitKey();
-        cv::imwrite("../log/res.png", mapVis);
+//        cv::imwrite("../log/res.png", mapVis);
     }
     else {
         cv::waitKey(100);
@@ -1013,23 +1049,29 @@ Pgm buildPgm(const std::vector<LocationGeneral> &wifiLocations,
             double nextLocY = wifiLocations[i + 1].locationXY.y;
             double dx = nextLocX - locX;
             double dy = nextLocY - locY;
-            double orient = atan2(dy, dx);
-            locOIdx = Utils::orientToOrientIdx(orient);
+            double curOrient = atan2(dy, dx);
+            locOIdx = Utils::orientToOrientIdx(curOrient);
 
 //            {
-//                double curDist = stepDists[i + 1];
-//                double curOrient = orientIdxToOrient(locOIdx);
-//                double nextLocXPred = locX + curDist * cos(curOrient);
-//                double nextLocYPred = locY + curDist * sin(curOrient);
+//                double distMeas = stepDists[i + 1];
+//                double curDist = sqrt(dx*dx + dy*dy);
+////                double curOrient = Utils::orientIdxToOrient(locOIdx);
+//                double orientMeas = orientMap[i + 1];
 //
-//                double error = sqrt((nextLocX - nextLocXPred)*(nextLocX - nextLocXPred) +
-//                        (nextLocY - nextLocYPred)*(nextLocY - nextLocYPred));
-//                double orientError = Utils::angDiff(curOrient, orientMap[i]);
-
+//                double error = curDist - distMeas;
+//                double orientError = Utils::angDiff(curOrient, orientMeas);
+//
+////                double nextLocXPred = locX + curDist * cos(curOrient);
+////                double nextLocYPred = locY + curDist * sin(curOrient);
+////
+////                double error = sqrt((nextLocX - nextLocXPred)*(nextLocX - nextLocXPred) +
+////                        (nextLocY - nextLocYPred)*(nextLocY - nextLocYPred));
+////                double orientError = Utils::angDiff(curOrient, orientMap[i]);
+//
 //                cout << "step = " << i << ", error = " << error << ", orientError  = " << orientError << endl;
-//                cout << "loc = (" << locX << ", " << locY << "), nextLoc = (" << nextLocX << ", " << nextLocY << ")" <<
-//                        ", d = (" << curDist * cos(curOrient) << ", " << curDist * sin(curOrient) << ")" << endl;
-//                cout << "step = " << i << ", dist = " << curDist << ", error = " << error << endl;
+////                cout << "loc = (" << locX << ", " << locY << "), nextLoc = (" << nextLocX << ", " << nextLocY << ")" <<
+////                        ", d = (" << curDist * cos(curOrient) << ", " << curDist * sin(curOrient) << ")" << endl;
+////                cout << "step = " << i << ", dist = " << curDist << ", error = " << error << endl;
 //            }
 
             prevLocOIdx = locOIdx;
@@ -1071,6 +1113,10 @@ Pgm buildPgm(const std::vector<LocationGeneral> &wifiLocations,
         if(find(rvVals.begin(), rvVals.end(), varVal) == rvVals.end()){
             cout << "Warning - varVal not in rvVals, substituting with the closest" << endl;
             cout << "Closest distance = " << closestDist << endl;
+
+            if(closestDist > 3.0){
+                throw "Closest varVal too far";
+            }
             
             varVal = Utils::mapGridToVal(closestXIdx, closestYIdx, locOIdx);
         }
@@ -1089,9 +1135,14 @@ Pgm buildPgm(const std::vector<LocationGeneral> &wifiLocations,
     for(int i = 0; i < probs.size(); ++i){
         vector<int> curObsVecIdxs(mapSize);
         iota(curObsVecIdxs.begin(), curObsVecIdxs.end(), obsVecStartProb[i]);
-        
+
+        int curParamId = nextParamId;
+        // separate parameter for image locations.
+        if(wifiLocations[i].wifiScans.empty()){
+           curParamId += 1;
+        }
         shared_ptr<Feature> curFeat(new LocFeature(nextFeatId++,
-                                                   nextParamId,
+                                                   curParamId,
                                                    vector<shared_ptr<RandVar>>{randVars[i]},
                                                    curObsVecIdxs));
 
@@ -1107,7 +1158,8 @@ Pgm buildPgm(const std::vector<LocationGeneral> &wifiLocations,
         locFeats.push_back(curFeat);
         feats.push_back(curFeat);
     }
-    ++nextParamId;
+    // for wifi and image locations
+    nextParamId += 2;
 
     // move features
     vector<shared_ptr<Feature>> moveFeats;
@@ -1227,22 +1279,22 @@ Pgm buildPgm(const std::vector<LocationGeneral> &wifiLocations,
     }
     
     // MoG, orient
-//    pgm.params() = vector<double>{3.41153, 2.49436, 1.1856};
+//    pgm.params() = vector<double>{3.41153, 3.41153, 2.49436, 1.1856};
+    pgm.params() = vector<double>{3.21782, 1.26879, 2.9435, 1.46455};
 
     // MoG, no orient
-//    pgm.params() = vector<double>{4.16378, 2.51943, 0.0110781};
+//    pgm.params() = vector<double>{4.16378, 4.16378, 2.51943, 0.0110781};
 
     // wknn, orient
-    pgm.params() = vector<double>{3.05433, 2.50476, 1.14605};
+//    pgm.params() = vector<double>{3.05433, 3.05433, 2.50476, 1.14605};
 
     // wknn, no orient
-//    pgm.params() = vector<double>{3.59296, 2.54812, 0.00494331};
+//    pgm.params() = vector<double>{3.59296, 3.59296, 2.54812, 0.00494331};
 
     return pgm;
 }
 
-vector<LocationXY> inferLocations(int nloc,
-                                  const Pgm &pgm,
+vector<LocationXY> inferLocations(const Pgm &pgm,
                                   const vector<double> &obsVec,
                                   const std::map<int, int> &locIdxToVarClusterId)
 {
@@ -1267,8 +1319,9 @@ vector<LocationXY> inferLocations(int nloc,
                                                           pgm.params(),
                                                          obsVec);
     
-    for(int i = 0; i < nloc; ++i){
-        int varClusterId = locIdxToVarClusterId.at(i);
+    for(const auto& idxId : locIdxToVarClusterId){
+        int varClusterId = idxId.second;
+
         const vector<double> &curVals = retVals[varClusterId];
         
         int curLoc = curVals.front();
@@ -1288,8 +1341,8 @@ int main() {
     static constexpr bool stopVis = false;
     static constexpr bool saveVis = false;
 
-//        static constexpr bool estimateParams = true;
-//        static constexpr bool infer = false;
+//    static constexpr bool estimateParams = true;
+//    static constexpr bool infer = false;
     static constexpr bool estimateParams = false;
     static constexpr bool infer = true;
 
@@ -1303,7 +1356,7 @@ int main() {
     set<int> forbiddenVals;
     set<int> allowedVals;
     shared_ptr<Graph> graph;
-    vector<LocationWiFi> mapWifiLocations;
+    vector<LocationWifi> mapWifiLocations;
     vector<LocationImage> mapImageLocations;
     readMap(mapDirPath,
             mapWifiLocations,
@@ -1335,7 +1388,7 @@ int main() {
                         "ps_1"};
     }
 
-    setFastABLE setFastable{64, 40, 1.2, 7, 3, 5, 0.5};
+    setFastABLE setFastable{64, 40, 0.8, 7, 3, 5, 0.5};
 
     FastABLE fastable(setFastable);
     fastable.addImageMap(mapImageLocations);
@@ -1418,38 +1471,52 @@ int main() {
                 double errorSumComp = 0;
                 int errorCntComp = 0;
 
-                int curIdxStart = -1;
+                int curIdxStart = 0;
                 int curIdxEnd = 0;
                 int scanCnt = 0;
+                int firstIdxEnd = 0;
                 while (curIdxEnd < curTrajLocations.size()) {
                     bool stopVisSeq = false;
 
-                    // move start
-                    ++curIdxStart;
-                    if (curIdxStart > 0) {
-                        --scanCnt;
-                    }
                     // find next scan
-                    while (curIdxStart < curTrajLocations.size() && curTrajLocations[curIdxStart].wifiScans.empty()) {
+                    while (curIdxStart < curTrajLocations.size() && scanCnt >= seqLen) {
+                        if(!curTrajLocations[curIdxStart].wifiScans.empty()){
+                            --scanCnt;
+                        }
                         ++curIdxStart;
                     }
 
+                    int newLocCnt = 0;
                     // iterate until seqLen scans found
                     while (curIdxEnd < curTrajLocations.size() && scanCnt < seqLen) {
                         if (!curTrajLocations[curIdxEnd].wifiScans.empty()) {
                             ++scanCnt;
                         }
                         ++curIdxEnd;
+                        ++newLocCnt;
+                    }
+
+                    // if first sequence
+                    if(curIdxStart == 0){
+                        firstIdxEnd = curIdxEnd;
                     }
 
                     if(scanCnt == seqLen) {
+                        vector<LocationGeneral> seqTrajLocationsGeneral = vector<LocationGeneral>(
+                                curTrajLocations.begin() + curIdxStart,
+                                curTrajLocations.begin() + curIdxEnd);
+                        vector<LocationWifi> seqTrajLocationsWifi;
+                        for(const auto &loc : seqTrajLocationsGeneral){
+                            if(!loc.wifiScans.empty()){
+                                seqTrajLocationsWifi.push_back(LocationWifi(loc));
+                            }
+                        }
+
                         chrono::steady_clock::time_point startTime = chrono::steady_clock::now();
                         vector<double> iObsVec;
                         map<int, int> iLocIdxToRandVarClusterId;
                         vector<double> iVarVals;
-                        Pgm iPgm = buildPgm(vector<LocationGeneral>(
-                                curTrajLocations.begin() + curIdxStart,
-                                curTrajLocations.begin() + curIdxEnd),
+                        Pgm iPgm = buildPgm(seqTrajLocationsGeneral,
                                             mapObstacles,
                                             mapScale,
                                             vector<vector<vector<double>>>(
@@ -1466,8 +1533,7 @@ int main() {
                                             iVarVals);
 
                         if (infer) {
-                            vector<LocationXY> infLoc = inferLocations(seqLen,
-                                                                       iPgm,
+                            vector<LocationXY> infLoc = inferLocations(iPgm,
                                                                        iObsVec,
                                                                        iLocIdxToRandVarClusterId);
 
@@ -1475,10 +1541,16 @@ int main() {
                             infDur += endTime - startTime;
                             ++infTimeCnt;
 
-                            infLocAll.push_back(infLoc.back());
+                            // in first iteration add only last location - first wifi scan localized
+                            if(curIdxStart == 0){
+                                infLocAll.push_back(infLoc.back());
+                            }
+                            else {
+                                infLocAll.insert(infLocAll.end(), infLoc.end() - newLocCnt, infLoc.end());
+                            }
                             {
-                                double dx = infLoc.back().x - curTrajLocations[curIdxEnd - 1].locationXY.x;
-                                double dy = infLoc.back().y - curTrajLocations[curIdxEnd - 1].locationXY.y;
+                                double dx = infLoc.back().x - seqTrajLocationsGeneral.back().locationXY.x;
+                                double dy = infLoc.back().y - seqTrajLocationsGeneral.back().locationXY.y;
                                 double curError = sqrt(dx * dx + dy * dy);
                                 errorSum += curError;
                                 errors.push_back(curError);
@@ -1491,22 +1563,21 @@ int main() {
                             }
 
                             vector<LocationXY> wknnLoc;
-                            for (int t =  curIdxStart; t < curIdxEnd; ++t) {
+                            for (int t =  0; t < seqTrajLocationsWifi.size(); ++t) {
                                 double meanErrorWknn = 0.0;
-                                if(!curTrajLocations[t].wifiScans.empty()) {
-                                    LocationXY curLoc = wknn(mapWifiLocations,
-                                                             LocationWiFi(curTrajLocations[t]),
-                                                             wknnk,
-                                                             meanErrorWknn);
-                                    //                        cout << "curLoc = (" << curLoc.x << ", " << curLoc.y << ")" << endl;
-                                    wknnLoc.push_back(curLoc);
-                                }
+
+                                LocationXY curLoc = wknn(mapWifiLocations,
+                                                         seqTrajLocationsWifi[t],
+                                                         wknnk,
+                                                         meanErrorWknn);
+                                //                        cout << "curLoc = (" << curLoc.x << ", " << curLoc.y << ")" << endl;
+                                wknnLoc.push_back(curLoc);
                             }
 
                             wknnLocAll.push_back(wknnLoc.back());
                             {
-                                double dx = wknnLoc.back().x - curTrajLocations[curIdxEnd - 1].locationXY.x;
-                                double dy = wknnLoc.back().y - curTrajLocations[curIdxEnd - 1].locationXY.y;
+                                double dx = wknnLoc.back().x - seqTrajLocationsWifi.back().locationXY.x;
+                                double dy = wknnLoc.back().y - seqTrajLocationsWifi.back().locationXY.y;
                                 double curErrorComp = sqrt(dx * dx + dy * dy);
                                 errorSumComp += curErrorComp;
                                 errorsComp.push_back(curErrorComp);
@@ -1516,9 +1587,7 @@ int main() {
                             }
 
                             visualizeMapInfer(mapWifiLocations,
-                                              vector<LocationGeneral>(
-                                                      curTrajLocations.begin() + curIdxStart,
-                                                      curTrajLocations.begin() + curIdxEnd),
+                                              seqTrajLocationsGeneral,
                                               infLoc,
                                               wknnLoc,
                                               mapImage,
@@ -1543,7 +1612,7 @@ int main() {
 
                     visualizeMapInfer(mapWifiLocations,
                                       vector<LocationGeneral>(
-                                              curTrajLocations.begin() + seqLen - 1,
+                                              curTrajLocations.begin() + firstIdxEnd - 1,
                                               curTrajLocations.end()),
                                       infLocAll,
                                       wknnLocAll,
@@ -1567,8 +1636,7 @@ int main() {
                 int errorCntComp = 0;
 
 
-                vector<LocationXY> infLoc = inferLocations(curTrajLocations.size(),
-                                                           curPgm,
+                vector<LocationXY> infLoc = inferLocations(curPgm,
                                                            curObsVec,
                                                            curLocIdxToRandVarClusterId);
                 for (int t = 0; t < curTrajLocations.size(); ++t) {
@@ -1589,7 +1657,7 @@ int main() {
                     if(!curTrajLocations[t].wifiScans.empty()) {
                         double meanErrorWknn = 0.0;
                         LocationXY curLoc = wknn(mapWifiLocations,
-                                                 LocationWiFi(curTrajLocations[t]),
+                                                 LocationWifi(curTrajLocations[t]),
                                                  wknnk,
                                                  meanErrorWknn);
 //                        cout << "curLoc = (" << curLoc.x << ", " << curLoc.y << ")" << endl;

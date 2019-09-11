@@ -6,7 +6,7 @@
 #define WIFISEQ_UTILS_HPP
 
 #include <vector>
-#include "LocationWiFi.hpp"
+#include "LocationWifi.hpp"
 
 static constexpr int ssThreshold = -100;
 static constexpr double sharedPercentThreshold = 0.6;
@@ -25,8 +25,8 @@ static constexpr int mapGridSizeX = ceil((mapMaxX - mapMinX) / mapGrid);
 static constexpr int mapGridSizeY = ceil((mapMaxY - mapMinY) / mapGrid);
 
 static constexpr double wifiSigma = 8.0;
-static constexpr double errorWifiSigma = 2;
-static constexpr double errorImageSigma = 0.5;
+static constexpr double errorWifiSigma = 2.0;
+static constexpr double errorImageSigma = 2.0;
 static constexpr double distSigma = 2.0;
 static constexpr double orientSigma = 0.8;
 
@@ -39,13 +39,13 @@ static constexpr double minProb = 0.01;
 static constexpr double probRatio = 2.0;
 
 // change probScale when changing this parameter
-//    static constexpr int useWknn = false;
-static constexpr int useWknn = true;
+    static constexpr int useWknn = false;
+//static constexpr int useWknn = true;
 
 // prob by wknn
-static constexpr double probScale = 1.0;
+//static constexpr double probScale = 1.0;
 // prob by MoG
-//static constexpr double probScale = 0.2;
+static constexpr double probScale = 0.2;
 
 static constexpr double probVisScale = 4;
 

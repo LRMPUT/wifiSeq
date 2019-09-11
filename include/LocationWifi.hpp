@@ -48,16 +48,16 @@ public:
     cv::Mat image;
 };
 
-class LocationWiFi {
+class LocationWifi {
 public:
-    LocationWiFi() {}
+    LocationWifi() {}
 
-    explicit LocationWiFi(const LocationGeneral &lg)
+    explicit LocationWifi(const LocationGeneral &lg)
             : timestamp(lg.timestamp), locationXY(lg.locationXY), wifiScans(lg.wifiScans) {
 
     }
 
-    LocationWiFi(uint64_t timestamp, const LocationXY &locationXy, const std::vector<ScanResult> &wifiScans)
+    LocationWifi(uint64_t timestamp, const LocationXY &locationXy, const std::vector<ScanResult> &wifiScans)
             : timestamp(timestamp), locationXY(locationXy), wifiScans(wifiScans) {}
 
     uint64_t timestamp;
@@ -87,7 +87,7 @@ class CompResWiFi{
 public:
     CompResWiFi() {}
     
-    LocationWiFi locA, locB;
+    LocationWifi locA, locB;
     double error;
     double sharedPercentA, sharedPercentB;
 private:

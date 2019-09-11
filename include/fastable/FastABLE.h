@@ -7,7 +7,7 @@
 
 #include <iostream>
 
-#include "LocationWiFi.hpp"
+#include "LocationWifi.hpp"
 #include "ldb/ldb.h"
 #include <vector>
 #include <algorithm>

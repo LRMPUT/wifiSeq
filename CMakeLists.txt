@@ -27,7 +27,7 @@ set(LBFGS_LIBRARIES lbfgs)
 set(wifiSeq_SRC
         src/main.cpp
         src/Utils.cpp
-        src/LocationWiFi.cpp
+        src/LocationWifi.cpp
         src/WiFiSeqFeatures.cpp
         src/Stepometer.cpp
         src/Graph.cpp
