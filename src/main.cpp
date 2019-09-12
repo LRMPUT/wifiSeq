@@ -22,7 +22,6 @@
 #include "Graph.hpp"
 #include "fastable/FastABLE.h"
 
-
 using namespace std;
 
 
@@ -431,7 +430,8 @@ void readTrajectory(const boost::filesystem::path &dirPath,
                     std::vector<LocationGeneral> &locations,
                     vector<vector<vector<double>>> &probs,
                     std::vector<double> &stepDists,
-                    std::vector<double> &orientMeas)
+                    std::vector<double> &orientMeas,
+                    bool readVpr = true)
 {
     cout << "Reading trajectory" << endl;
 
@@ -497,8 +497,8 @@ void readTrajectory(const boost::filesystem::path &dirPath,
             cout << "read " << locations.size() << " WiFi locations" << endl;
         }
 
-        vector<ImageRecognitionResult> imgRecogRes(locations.size());
-        {
+//        vector<ImageRecognitionResult> imgRecogRes(locations.size());
+        if(readVpr){
             uint64_t prevTimestamp = 0;
             int cnt = 0;
 
@@ -524,7 +524,7 @@ void readTrajectory(const boost::filesystem::path &dirPath,
                     // FastABLE recognition
                     ImageRecognitionResult curRes = fastable.addNewTestingImage(curLoc.image);
 
-                    if(curRes.matchingLocations.size() > 0 && (timestamp - prevTimestamp) / 1.0e9 > 1.0) {
+                    if(curRes.matchingLocations.size() > 0 && (timestamp - prevTimestamp) / 1.0e9 > vprTimeThresh) {
                         vector<vector<double>> curProb = locationImageProb(curLoc,
                                                                           curRes);
 
@@ -532,7 +532,7 @@ void readTrajectory(const boost::filesystem::path &dirPath,
                         locations.push_back(curLoc);
                         probs.push_back(curProb);
 
-                        imgRecogRes.push_back(curRes);
+//                        imgRecogRes.push_back(curRes);
 
                         ++cnt;
                         prevTimestamp = timestamp;
@@ -555,15 +555,15 @@ void readTrajectory(const boost::filesystem::path &dirPath,
                     int idx = locIdToIdx[id];
                     locations[idx].locationXY = LocationXY(x, y, id);
 
-                    if(locations[idx].wifiScans.empty()){
-                        cout << endl << "id = " << id << endl;
-                        for(int i = 0; i < imgRecogRes[idx].matchingLocations.size(); ++i){
-                            double dx = locations[idx].locationXY.x - imgRecogRes[idx].matchingLocations[i].x;
-                            double dy = locations[idx].locationXY.y - imgRecogRes[idx].matchingLocations[i].y;
-
-                            cout << "w = " << imgRecogRes[idx].matchingWeights[i] << ", dist = " << sqrt(dx*dx + dy*dy) << endl;
-                        }
-                    }
+//                    if(locations[idx].wifiScans.empty()){
+//                        cout << endl << "id = " << id << endl;
+//                        for(int i = 0; i < imgRecogRes[idx].matchingLocations.size(); ++i){
+//                            double dx = locations[idx].locationXY.x - imgRecogRes[idx].matchingLocations[i].x;
+//                            double dy = locations[idx].locationXY.y - imgRecogRes[idx].matchingLocations[i].y;
+//
+//                            cout << "e = " << imgRecogRes[idx].matchingWeights[i] << ", dist = " << sqrt(dx*dx + dy*dy) << endl;
+//                        }
+//                    }
                 }
             }
         }
@@ -1277,10 +1277,12 @@ Pgm buildPgm(const std::vector<LocationGeneral> &wifiLocations,
        Pgm::addEdgeToPgm(rvClusters[i - 1], moveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i - 1]});
        Pgm::addEdgeToPgm(rvClusters[i], moveFeatClusters[i - 1], vector<shared_ptr<RandVar>>{randVars[i]});
     }
-    
+
+    // MoG, orient, VPR
+    pgm.params() = vector<double>{3.22684, 1.23347, 2.9465, 1.46584};
+
     // MoG, orient
 //    pgm.params() = vector<double>{3.41153, 3.41153, 2.49436, 1.1856};
-    pgm.params() = vector<double>{3.21782, 1.26879, 2.9435, 1.46455};
 
     // MoG, no orient
 //    pgm.params() = vector<double>{4.16378, 4.16378, 2.51943, 0.0110781};
@@ -1317,7 +1319,7 @@ vector<LocationXY> inferLocations(const Pgm &pgm,
                                                          marg,
                                                          msgs,
                                                           pgm.params(),
-                                                         obsVec);
+                                                          obsVec);
     
     for(const auto& idxId : locIdxToVarClusterId){
         int varClusterId = idxId.second;
@@ -1339,7 +1341,7 @@ vector<LocationXY> inferLocations(const Pgm &pgm,
 
 int main() {
     static constexpr bool stopVis = false;
-    static constexpr bool saveVis = false;
+    static constexpr bool saveVis = true;
 
 //    static constexpr bool estimateParams = true;
 //    static constexpr bool infer = false;
@@ -1419,7 +1421,8 @@ int main() {
                        curTrajLocations,
                        curProbs,
                        curStepDists,
-                       curOrients);
+                       curOrients,
+                       enableVpr);
 
 //        for (int i = 0; i < curTrajLocations.size(); ++i) {
 //            vector<vector<double>> curProb = locationWifiProb(curTrajLocations[i], mapWifiLocations, useWknn);
@@ -1613,7 +1616,7 @@ int main() {
                     visualizeMapInfer(mapWifiLocations,
                                       vector<LocationGeneral>(
                                               curTrajLocations.begin() + firstIdxEnd - 1,
-                                              curTrajLocations.end()),
+                                              curTrajLocations.begin() + firstIdxEnd - 1 + infLocAll.size()),
                                       infLocAll,
                                       wknnLocAll,
                                       mapImage,
