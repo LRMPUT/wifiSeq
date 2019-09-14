@@ -52,6 +52,7 @@ static constexpr double probVisScale = 4;
 static constexpr int wknnk = 6;
 
 static constexpr bool enableVpr = true;
+//static constexpr bool enableVpr = false;
 static constexpr double vprTimeThresh = 1.0;
 
 

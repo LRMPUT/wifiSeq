@@ -827,7 +827,8 @@ void visualizeMapInfer(const std::vector<LocationWifi> &database,
                        const cv::Mat &mapImage,
                        const double &mapScale,
                        bool stop = false,
-                       bool save = false)
+                       bool save = false,
+                       const std::vector<LocationXY> &inferLocationsComp = std::vector<LocationXY>())
 {
     cv::Mat mapVis = mapImage.clone();
 //    for(const LocationWifi &curLoc : database){
@@ -863,6 +864,65 @@ void visualizeMapInfer(const std::vector<LocationWifi> &database,
     static constexpr double radius = 8;
     static constexpr double thickness = 4;
 
+    for(int i = 0; i < trajLocations.size(); ++i){
+        static const cv::Scalar color(0.1250 * 255, 0.6940 * 255, 0.9290 * 255);
+
+        const LocationXY &gtLoc = trajLocations[i].locationXY;
+        cv::Point2d pt(gtLoc.x, gtLoc.y);
+        if(trajLocations[i].wifiScans.empty()){
+            cv::circle(mapVis, pt * mapScale, radius, color, 2);
+        }
+        else {
+            cv::circle(mapVis, pt * mapScale, radius, color, CV_FILLED);
+        }
+
+        if (i > 0) {
+            const LocationXY &prevGtLoc = trajLocations[i - 1].locationXY;
+            cv::Point2d prevGtPt(prevGtLoc.x, prevGtLoc.y);
+
+            cv::line(mapVis, prevGtPt * mapScale, pt * mapScale, color, thickness);
+        }
+    }
+    for(int i = 0; i < compLocations.size(); ++i){
+        static const cv::Scalar color(0.0980 * 255, 0.3250 * 255, 0.8500 * 255);
+
+        const LocationXY &compLoc = compLocations[i];
+        cv::Point2d pt(compLoc.x, compLoc.y);
+        cv::circle(mapVis, pt * mapScale, radius, color, CV_FILLED);
+
+//            cv::putText(mapVis,
+//                        to_string(i),
+//                        pt * mapScale,
+//                        cv::FONT_HERSHEY_PLAIN,
+//                        1,
+//                        cv::Scalar(0, 0, 0));
+        if (i > 0) {
+            const LocationXY &prevCompLoc = compLocations[i - 1];
+            cv::Point2d prevPt(prevCompLoc.x, prevCompLoc.y);
+
+            cv::line(mapVis, prevPt * mapScale, pt * mapScale, color, thickness);
+        }
+    }
+    for(int i = 0; i < inferLocationsComp.size(); ++i){
+        static const cv::Scalar color(0.5560*255, 0.1840*255, 0.4940*255);
+
+        const LocationXY &infLoc = inferLocationsComp[i];
+        cv::Point2d pt(infLoc.x, infLoc.y);
+        cv::circle(mapVis, pt * mapScale, radius, color, CV_FILLED);
+
+//            cv::putText(mapVis,
+//                        to_string(i),
+//                        pt * mapScale,
+//                        cv::FONT_HERSHEY_PLAIN,
+//                        1,
+//                        cv::Scalar(0, 0, 0));
+        if (i > 0) {
+            const LocationXY &prevInfLoc = inferLocationsComp[i - 1];
+            cv::Point2d prevPt(prevInfLoc.x, prevInfLoc.y);
+
+            cv::line(mapVis, prevPt * mapScale, pt * mapScale, color, thickness);
+        }
+    }
     for(int i = 0; i < inferLocations.size(); ++i){
         static const cv::Scalar color(0.7410 * 255, 0.4470 * 255, 0.0 * 255);
 
@@ -886,46 +946,6 @@ void visualizeMapInfer(const std::vector<LocationWifi> &database,
             cv::Point2d prevPt(prevInfLoc.x, prevInfLoc.y);
 
             cv::line(mapVis, prevPt * mapScale, pt * mapScale, color, thickness);
-        }
-    }
-    for(int i = 0; i < compLocations.size(); ++i){
-        static const cv::Scalar color(0.0980 * 255, 0.3250 * 255, 0.8500 * 255);
-
-        const LocationXY &compLoc = compLocations[i];
-        cv::Point2d pt(compLoc.x, compLoc.y);
-        cv::circle(mapVis, pt * mapScale, radius, color, CV_FILLED);
-
-//            cv::putText(mapVis,
-//                        to_string(i),
-//                        pt * mapScale,
-//                        cv::FONT_HERSHEY_PLAIN,
-//                        1,
-//                        cv::Scalar(0, 0, 0));
-        if (i > 0) {
-            const LocationXY &prevCompLoc = compLocations[i - 1];
-            cv::Point2d prevPt(prevCompLoc.x, prevCompLoc.y);
-
-            cv::line(mapVis, prevPt * mapScale, pt * mapScale, color, thickness);
-        }
-    }
-
-    for(int i = 0; i < trajLocations.size(); ++i){
-        static const cv::Scalar color(0.1250 * 255, 0.6940 * 255, 0.9290 * 255);
-
-        const LocationXY &gtLoc = trajLocations[i].locationXY;
-        cv::Point2d pt(gtLoc.x, gtLoc.y);
-        if(trajLocations[i].wifiScans.empty()){
-            cv::circle(mapVis, pt * mapScale, radius, color, 2);
-        }
-        else {
-            cv::circle(mapVis, pt * mapScale, radius, color, CV_FILLED);
-        }
-
-        if (i > 0) {
-            const LocationXY &prevGtLoc = trajLocations[i - 1].locationXY;
-            cv::Point2d prevGtPt(prevGtLoc.x, prevGtLoc.y);
-
-            cv::line(mapVis, prevGtPt * mapScale, pt * mapScale, color, thickness);
         }
     }
 
@@ -1109,6 +1129,15 @@ Pgm buildPgm(const std::vector<LocationGeneral> &wifiLocations,
             }
         }
         cout << "rvVals.size() = " << rvVals.size() << endl;
+        {
+            static int rvValsSum = 0;
+            static int n = 0;
+
+            rvValsSum += rvVals.size();
+            ++n;
+
+            cout << "Average rvVals.size() = " << (double)rvValsSum / n << endl;
+        }
         
         if(find(rvVals.begin(), rvVals.end(), varVal) == rvVals.end()){
             cout << "Warning - varVal not in rvVals, substituting with the closest" << endl;
@@ -1342,6 +1371,11 @@ vector<LocationXY> inferLocations(const Pgm &pgm,
 int main() {
     static constexpr bool stopVis = false;
     static constexpr bool saveVis = true;
+
+    static constexpr bool saveTraj = true;
+    static constexpr bool loadTraj = false;
+//    static constexpr bool saveTraj = false;
+//    static constexpr bool loadTraj = true;
 
 //    static constexpr bool estimateParams = true;
 //    static constexpr bool infer = false;
@@ -1613,6 +1647,25 @@ int main() {
                     }
                     cout << endl;
 
+                    if(saveTraj){
+                        ofstream outFile("../log/" + trajDirPaths[t].string() + "_online");
+                        for(int i = 0; i < infLocAll.size(); ++i){
+                            outFile << infLocAll[i].id << " " << infLocAll[i].x << " " << infLocAll[i].y << endl;
+                        }
+                    }
+                    vector<LocationXY> infLocAllComp;
+                    if(loadTraj){
+                        ifstream inFile("../log/" + trajDirPaths[t].string() + "_online");
+                        while(!inFile.eof() && inFile.good()){
+                            double x, y;
+                            int id;
+                            inFile >> id >> x >> y;
+                            if(inFile.good()){
+                                infLocAllComp.emplace_back(x, y, id);
+                            }
+                        }
+                    }
+
                     visualizeMapInfer(mapWifiLocations,
                                       vector<LocationGeneral>(
                                               curTrajLocations.begin() + firstIdxEnd - 1,
@@ -1622,7 +1675,8 @@ int main() {
                                       mapImage,
                                       mapScale,
                                       stopVis,
-                                      saveVis);
+                                      saveVis,
+                                      infLocAllComp);
 
                     for (int e = 0; e < errors.size(); ++e) {
                         errorsFile << errors[e] << " " << errorsComp[e] << endl;
@@ -1684,6 +1738,25 @@ int main() {
                 }
                 cout << endl;
 
+                if(saveTraj){
+                    ofstream outFile("../log/" + trajDirPaths[t].string() + "_offline");
+                    for(int i = 0; i < infLoc.size(); ++i){
+                        outFile << infLoc[i].id << " " << infLoc[i].x << " " << infLoc[i].y << endl;
+                    }
+                }
+                vector<LocationXY> infLocComp;
+                if(loadTraj){
+                    ifstream inFile("../log/" + trajDirPaths[t].string() + "_offline");
+                    while(!inFile.eof() && inFile.good()){
+                        double x, y;
+                        int id;
+                        inFile >> id >> x >> y;
+                        if(inFile.good()){
+                            infLocComp.emplace_back(x, y, id);
+                        }
+                    }
+                }
+
                 visualizeMapInfer(mapWifiLocations,
                                   curTrajLocations,
                                   infLoc,
@@ -1691,7 +1764,8 @@ int main() {
                                   mapImage,
                                   mapScale,
                                   stopVis,
-                                  saveVis);
+                                  saveVis,
+                                  infLocComp);
 
                 for (int e = 0; e < errors.size(); ++e) {
                     errorsAllFile << errors[e] << " " << errorsComp[e] << endl;
