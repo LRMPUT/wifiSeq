@@ -1,6 +1,6 @@
 /*
-	Copyright (c) 2015,	TAPAS Team:
-	-Jan Wietrzykowski (jan.wietrzykowski@cie.put.poznan.pl).
+	Copyright (c) 2019,	Mobile Robots Laboratory:
+	-Jan Wietrzykowski (jan.wietrzykowski@put.poznan.pl).
 	Poznan University of Technology
 	All rights reserved.
 
